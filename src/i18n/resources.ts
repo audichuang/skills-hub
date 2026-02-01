@@ -124,6 +124,16 @@ export const resources = {
       gitPickTitle: 'Select skills to import',
       gitPickBody:
         'Multiple skills found in this repository. Choose which ones to install.',
+      localPickTitle: 'Select skills to import',
+      localPickBody: 'Multiple skills found in this folder. Choose which ones to install.',
+      localPickInvalidReason: 'Invalid: {{reason}}',
+      localSkillInvalid: {
+        missingSkillMd: 'Missing SKILL.md',
+        invalidFrontmatter: 'Invalid frontmatter',
+        missingName: 'Missing name in frontmatter',
+        readFailed: 'Failed to read SKILL.md',
+        unknown: 'Unknown issue',
+      },
       toolsScanned: 'Tools scanned: {{count}}',
       skillsFound: 'Skills found: {{count}}',
       foundIn: 'Found in',
@@ -141,7 +151,10 @@ export const resources = {
           'No sync target selected. Please check targets under “Create Skills -> Sync targets”.',
         noSkillsFoundWithHint:
           'No skills found in this repository (SKILL.md not detected).',
+        noSkillsFoundLocal: 'No skills found in this folder (SKILL.md not detected).',
         skillAlreadyExists: 'Skill "{{name}}" already exists. Please rename it.',
+        duplicateSelectedSkills:
+          'Duplicate skill name "{{name}}" selected. Please select only one.',
         selectAtLeastOneSkill: 'Please select at least one Skill.',
         multiSelectNoCustomName:
           'Custom name is not supported when installing multiple skills. Leave it empty or select one.',
@@ -369,6 +382,16 @@ export const resources = {
       syncAll: '同步全部托管 Skills',
       gitPickTitle: '选择要导入的 Skill',
       gitPickBody: '仓库内发现多个 Skills，可多选后统一安装。',
+      localPickTitle: '选择要导入的 Skill',
+      localPickBody: '目录内发现多个 Skills，可多选后统一安装。',
+      localPickInvalidReason: '不可用：{{reason}}',
+      localSkillInvalid: {
+        missingSkillMd: '缺少 SKILL.md',
+        invalidFrontmatter: 'Frontmatter 格式不合法',
+        missingName: 'Frontmatter 缺少 name',
+        readFailed: '无法读取 SKILL.md',
+        unknown: '未知问题',
+      },
       toolsScanned: '已扫描工具数：{{count}}',
       skillsFound: '发现 Skills 数：{{count}}',
       foundIn: '发现于',
@@ -384,7 +407,9 @@ export const resources = {
         requireGitUrl: '请输入 Git 仓库地址',
         noSyncTargets: '未选择任何同步目标工具，请在“创建 Skills -> 同步目标”里勾选。',
         noSkillsFoundWithHint: '未在该仓库中发现可导入的 Skills（未找到 SKILL.md）。',
+        noSkillsFoundLocal: '未在该目录中发现可导入的 Skills（未找到 SKILL.md）。',
         skillAlreadyExists: '技能「{{name}}」已存在，请更换名称后再安装。',
+        duplicateSelectedSkills: '所选 Skills 含有重复名称「{{name}}」，请只选择一个。',
         selectAtLeastOneSkill: '请至少选择一个 Skill',
         multiSelectNoCustomName:
           '多选安装时不支持自定义名称，请将名称留空或仅选择一个 Skill。',

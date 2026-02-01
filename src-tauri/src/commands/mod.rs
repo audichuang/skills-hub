@@ -11,8 +11,9 @@ use crate::core::cache_cleanup::{
 use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
 use crate::core::github_search::{search_github_repos, RepoSummary};
 use crate::core::installer::{
-    install_git_skill, install_git_skill_from_selection, install_local_skill, list_git_skills,
-    update_managed_skill_from_source, GitSkillCandidate, InstallResult,
+    install_git_skill, install_git_skill_from_selection, install_local_skill,
+    install_local_skill_from_selection, list_git_skills, list_local_skills,
+    update_managed_skill_from_source, GitSkillCandidate, InstallResult, LocalSkillCandidate,
 };
 use crate::core::onboarding::{build_onboarding_plan, OnboardingPlan};
 use crate::core::skill_store::{SkillStore, SkillTargetRecord};
@@ -338,6 +339,39 @@ pub async fn install_local(
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let result = install_local_skill(&app, &store, sourcePath.as_ref(), name)?;
+        Ok::<_, anyhow::Error>(to_install_dto(result))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn list_local_skills_cmd(basePath: String) -> Result<Vec<LocalSkillCandidate>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::PathBuf::from(basePath);
+        list_local_skills(&path)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn install_local_selection(
+    app: tauri::AppHandle,
+    store: State<'_, SkillStore>,
+    basePath: String,
+    subpath: String,
+    name: Option<String>,
+) -> Result<InstallResultDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::PathBuf::from(basePath);
+        let result =
+            install_local_skill_from_selection(&app, &store, base.as_ref(), &subpath, name)?;
         Ok::<_, anyhow::Error>(to_install_dto(result))
     })
     .await

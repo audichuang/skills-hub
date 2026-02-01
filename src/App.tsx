@@ -9,6 +9,7 @@ import SkillsList from './components/skills/SkillsList'
 import AddSkillModal from './components/skills/modals/AddSkillModal'
 import DeleteModal from './components/skills/modals/DeleteModal'
 import GitPickModal from './components/skills/modals/GitPickModal'
+import LocalPickModal from './components/skills/modals/LocalPickModal'
 import ImportModal from './components/skills/modals/ImportModal'
 import NewToolsModal from './components/skills/modals/NewToolsModal'
 import SharedDirModal from './components/skills/modals/SharedDirModal'
@@ -16,6 +17,7 @@ import SettingsModal from './components/skills/modals/SettingsModal'
 import type {
   GitSkillCandidate,
   InstallResultDto,
+  LocalSkillCandidate,
   ManagedSkill,
   OnboardingPlan,
   ToolOption,
@@ -55,6 +57,12 @@ function App() {
   const [gitCandidatesRepoUrl, setGitCandidatesRepoUrl] = useState<string>('')
   const [showGitPickModal, setShowGitPickModal] = useState(false)
   const [gitCandidateSelected, setGitCandidateSelected] = useState<
+    Record<string, boolean>
+  >({})
+  const [localCandidates, setLocalCandidates] = useState<LocalSkillCandidate[]>([])
+  const [localCandidatesBasePath, setLocalCandidatesBasePath] = useState('')
+  const [showLocalPickModal, setShowLocalPickModal] = useState(false)
+  const [localCandidateSelected, setLocalCandidateSelected] = useState<
     Record<string, boolean>
   >({})
   const [loadingStartAt, setLoadingStartAt] = useState<number | null>(null)
@@ -544,6 +552,18 @@ function App() {
     setGitCandidatesRepoUrl('')
   }, [loading])
 
+  const handleCloseLocalPick = useCallback(() => {
+    if (!loading) setShowLocalPickModal(false)
+  }, [loading])
+
+  const handleCancelLocalPick = useCallback(() => {
+    if (loading) return
+    setShowLocalPickModal(false)
+    setLocalCandidates([])
+    setLocalCandidateSelected({})
+    setLocalCandidatesBasePath('')
+  }, [loading])
+
   const handleSortChange = useCallback((value: 'updated' | 'name') => {
     setSortBy(value)
   }, [])
@@ -585,9 +605,30 @@ function App() {
     )
   }, [gitCandidates])
 
+  const handleToggleAllLocalCandidates = useCallback(
+    (checked: boolean) => {
+      setLocalCandidateSelected(
+        Object.fromEntries(
+          localCandidates.map((c) => [c.subpath, c.valid && checked]),
+        ),
+      )
+    },
+    [localCandidates],
+  )
+
   const handleToggleGitCandidate = useCallback(
     (subpath: string, checked: boolean) => {
       setGitCandidateSelected((prev) => ({
+        ...prev,
+        [subpath]: checked,
+      }))
+    },
+    [],
+  )
+
+  const handleToggleLocalCandidate = useCallback(
+    (subpath: string, checked: boolean) => {
+      setLocalCandidateSelected((prev) => ({
         ...prev,
         [subpath]: checked,
       }))
@@ -770,59 +811,89 @@ function App() {
     setError(null)
     setActionMessage(t('actions.creatingLocalSkill'))
     try {
-      const created = await invokeTauri<InstallResultDto>('install_local', {
-        sourcePath: localPath.trim(),
-        name: localName.trim() || undefined,
-      })
-      {
-        const selectedInstalledIds = tools
-          .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
-          .map((t) => t.id)
-        const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
-          .map((id) => tools.find((t) => t.id === id))
-          .filter(Boolean) as ToolOption[]
-        if (targets.length === 0) {
-          setError(t('errors.noSyncTargets'))
-        } else {
-          const collectedErrors: { title: string; message: string }[] = []
-          for (let i = 0; i < targets.length; i++) {
-            const tool = targets[i]
-            setActionMessage(
-              t('actions.syncStep', {
-                index: i + 1,
-                total: targets.length,
-                name: created.name,
-                tool: tool.label,
-              }),
-            )
-            try {
-              await invokeTauri('sync_skill_to_tool', {
-                sourcePath: created.central_path,
-                skillId: created.skill_id,
-                tool: tool.id,
-                name: created.name,
-              })
-            } catch (err) {
-              const raw = err instanceof Error ? err.message : String(err)
-              collectedErrors.push({
-                title: t('errors.syncFailedTitle', {
+      const basePath = localPath.trim()
+      const candidates = await invokeTauri<LocalSkillCandidate[]>(
+        'list_local_skills_cmd',
+        { basePath },
+      )
+      if (candidates.length === 0) {
+        throw new Error(t('errors.noSkillsFoundLocal'))
+      }
+      if (candidates.length === 1 && candidates[0].valid) {
+        const desiredName = localName.trim() || candidates[0].name
+        if (isSkillNameTaken(desiredName)) {
+          setError(t('errors.skillAlreadyExists', { name: desiredName }))
+          return
+        }
+        const created = await invokeTauri<InstallResultDto>(
+          'install_local_selection',
+          {
+            basePath,
+            subpath: candidates[0].subpath,
+            name: localName.trim() || undefined,
+          },
+        )
+        {
+          const selectedInstalledIds = tools
+            .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+            .map((t) => t.id)
+          const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+            .map((id) => tools.find((t) => t.id === id))
+            .filter(Boolean) as ToolOption[]
+          if (targets.length === 0) {
+            setError(t('errors.noSyncTargets'))
+          } else {
+            const collectedErrors: { title: string; message: string }[] = []
+            for (let i = 0; i < targets.length; i++) {
+              const tool = targets[i]
+              setActionMessage(
+                t('actions.syncStep', {
+                  index: i + 1,
+                  total: targets.length,
                   name: created.name,
                   tool: tool.label,
                 }),
-                message: raw,
-              })
+              )
+              try {
+                await invokeTauri('sync_skill_to_tool', {
+                  sourcePath: created.central_path,
+                  skillId: created.skill_id,
+                  tool: tool.id,
+                  name: created.name,
+                })
+              } catch (err) {
+                const raw = err instanceof Error ? err.message : String(err)
+                collectedErrors.push({
+                  title: t('errors.syncFailedTitle', {
+                    name: created.name,
+                    tool: tool.label,
+                  }),
+                  message: raw,
+                })
+              }
             }
+            if (collectedErrors.length > 0) showActionErrors(collectedErrors)
           }
-          if (collectedErrors.length > 0) showActionErrors(collectedErrors)
         }
+        setLocalPath('')
+        setLocalName('')
+        setActionMessage(t('status.localSkillCreated'))
+        setSuccessToastMessage(t('status.localSkillCreated'))
+        setActionMessage(null)
+        setShowAddModal(false)
+        await loadManagedSkills()
+      } else {
+        setLocalCandidatesBasePath(basePath)
+        setLocalCandidates(candidates)
+        setLocalCandidateSelected(
+          Object.fromEntries(candidates.map((c) => [c.subpath, c.valid])),
+        )
+        setShowLocalPickModal(true)
+        setActionMessage(null)
+        setLoading(false)
+        setLoadingStartAt(null)
+        return
       }
-      setLocalPath('')
-      setLocalName('')
-      setActionMessage(t('status.localSkillCreated'))
-      setSuccessToastMessage(t('status.localSkillCreated'))
-      setActionMessage(null)
-      setShowAddModal(false)
-      await loadManagedSkills()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -976,6 +1047,137 @@ function App() {
       await loadManagedSkills()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+      setLoadingStartAt(null)
+    }
+  }
+
+  const handleInstallSelectedLocalCandidates = async () => {
+    const selected = localCandidates.filter(
+      (c) => c.valid && localCandidateSelected[c.subpath],
+    )
+    if (selected.length === 0) {
+      setError(t('errors.selectAtLeastOneSkill'))
+      return
+    }
+    if (selected.length > 1 && localName.trim()) {
+      setError(t('errors.multiSelectNoCustomName'))
+      return
+    }
+    if (selected.length > 1) {
+      const seen = new Set<string>()
+      const dup = selected.find((c) => {
+        if (seen.has(c.name)) return true
+        seen.add(c.name)
+        return false
+      })
+      if (dup) {
+        setError(t('errors.duplicateSelectedSkills', { name: dup.name }))
+        return
+      }
+    }
+    const desiredName =
+      selected.length === 1 && localName.trim()
+        ? localName.trim()
+        : selected[0].name
+    if (selected.length === 1 && isSkillNameTaken(desiredName)) {
+      setError(t('errors.skillAlreadyExists', { name: desiredName }))
+      return
+    }
+    const duplicated = selected.find((c) => isSkillNameTaken(c.name))
+    if (selected.length > 1 && duplicated) {
+      setError(t('errors.skillAlreadyExists', { name: duplicated.name }))
+      return
+    }
+
+    setLoading(true)
+    setLoadingStartAt(Date.now())
+    setError(null)
+    try {
+      const collectedErrors: { title: string; message: string }[] = []
+      for (let i = 0; i < selected.length; i++) {
+        const candidate = selected[i]
+        setActionMessage(
+          t('actions.importStep', {
+            index: i + 1,
+            total: selected.length,
+            name: candidate.name,
+          }),
+        )
+        try {
+          const created = await invokeTauri<InstallResultDto>(
+            'install_local_selection',
+            {
+              basePath: localCandidatesBasePath,
+              subpath: candidate.subpath,
+              name: localName.trim() || undefined,
+            },
+          )
+          {
+            const selectedInstalledIds = tools
+              .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+              .map((t) => t.id)
+            const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+              .map((id) => tools.find((t) => t.id === id))
+              .filter(Boolean) as ToolOption[]
+            if (targets.length === 0) {
+              collectedErrors.push({
+                title: t('errors.unsyncedTitle', { name: created.name }),
+                message: t('errors.noSyncTargets'),
+              })
+            } else {
+              for (let ti = 0; ti < targets.length; ti++) {
+                const tool = targets[ti]
+                setActionMessage(
+                  t('actions.syncStep', {
+                    index: ti + 1,
+                    total: targets.length,
+                    name: created.name,
+                    tool: tool.label,
+                  }),
+                )
+                try {
+                  await invokeTauri('sync_skill_to_tool', {
+                    sourcePath: created.central_path,
+                    skillId: created.skill_id,
+                    tool: tool.id,
+                    name: created.name,
+                  })
+                } catch (err) {
+                  const raw = err instanceof Error ? err.message : String(err)
+                  collectedErrors.push({
+                    title: t('errors.syncFailedTitle', {
+                      name: created.name,
+                      tool: tool.label,
+                    }),
+                    message: raw,
+                  })
+                }
+              }
+            }
+          }
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err)
+          collectedErrors.push({
+            title: t('errors.importFailedTitle', { name: candidate.name }),
+            message: raw,
+          })
+        }
+      }
+
+      setShowLocalPickModal(false)
+      setLocalCandidates([])
+      setLocalCandidateSelected({})
+      setLocalCandidatesBasePath('')
+      setLocalPath('')
+      setLocalName('')
+      setActionMessage(t('status.selectedSkillsInstalled'))
+      setSuccessToastMessage(t('status.selectedSkillsInstalled'))
+      setActionMessage(null)
+      setShowAddModal(false)
+      await loadManagedSkills()
+      if (collectedErrors.length > 0) showActionErrors(collectedErrors)
     } finally {
       setLoading(false)
       setLoadingStartAt(null)
@@ -1456,6 +1658,19 @@ function App() {
         onConfirm={() => {
           if (pendingDeleteSkill) void handleDeleteManaged(pendingDeleteSkill)
         }}
+        t={t}
+      />
+
+      <LocalPickModal
+        open={showLocalPickModal}
+        loading={loading}
+        localCandidates={localCandidates}
+        localCandidateSelected={localCandidateSelected}
+        onRequestClose={handleCloseLocalPick}
+        onCancel={handleCancelLocalPick}
+        onToggleAll={handleToggleAllLocalCandidates}
+        onToggleCandidate={handleToggleLocalCandidate}
+        onInstall={handleInstallSelectedLocalCandidates}
         t={t}
       />
 

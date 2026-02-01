@@ -555,7 +555,9 @@ sequenceDiagram
 
 #### 添加 Skill（Local/Git）
 
-- local：`install_local` -> 对选中工具逐个 `sync_skill_to_tool`
+- local：先 `list_local_skills_cmd` 扫描目录（规则与 Git 一致），
+  - 多个候选则弹出选择列表（无效候选置灰并标注原因）
+  - 单个有效候选则 `install_local_selection` -> 对选中工具逐个 `sync_skill_to_tool`
 - git：
   - folder URL：直接 `install_git` -> 同步
   - repo root URL：`list_git_skills_cmd` -> GitPickModal 选择 -> `install_git_selection` -> 同步
