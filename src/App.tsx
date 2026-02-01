@@ -314,24 +314,54 @@ function App() {
     setActionMessage(null)
   }, [error, formatErrorMessage])
 
-  const tools: ToolOption[] = useMemo(
-    () => [
-      { id: 'opencode', label: t('tools.opencode') },
-      { id: 'claude_code', label: t('tools.claude_code') },
-      { id: 'codex', label: t('tools.codex') },
-      { id: 'cursor', label: t('tools.cursor') },
-      { id: 'amp', label: t('tools.amp') },
-      { id: 'kilo_code', label: t('tools.kilo_code') },
-      { id: 'roo_code', label: t('tools.roo_code') },
-      { id: 'goose', label: t('tools.goose') },
-      { id: 'gemini_cli', label: t('tools.gemini_cli') },
-      { id: 'antigravity', label: t('tools.antigravity') },
-      { id: 'github_copilot', label: t('tools.github_copilot') },
-      { id: 'clawdbot', label: t('tools.clawdbot') },
-      { id: 'droid', label: t('tools.droid') },
-      { id: 'windsurf', label: t('tools.windsurf') },
-    ],
-    [t],
+  const toolInfos = useMemo(() => toolStatus?.tools ?? [], [toolStatus])
+
+  const tools: ToolOption[] = useMemo(() => {
+    return toolInfos.map((info) => ({
+      id: info.key,
+      // Prefer i18n label if present; fallback to backend label.
+      label: t(`tools.${info.key}`, { defaultValue: info.label }),
+    }))
+  }, [t, toolInfos])
+
+  const toolLabelById = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const tool of tools) out[tool.id] = tool.label
+    return out
+  }, [tools])
+
+  const sharedToolIdsByToolId = useMemo(() => {
+    // toolId -> all toolIds that share the same skills_dir.
+    const byDir: Record<string, string[]> = {}
+    for (const info of toolInfos) {
+      const dir = info.skills_dir
+      if (!byDir[dir]) byDir[dir] = []
+      byDir[dir].push(info.key)
+    }
+    const out: Record<string, string[]> = {}
+    for (const dir of Object.keys(byDir)) {
+      const ids = byDir[dir]
+      if (ids.length <= 1) continue
+      for (const id of ids) out[id] = ids
+    }
+    return out
+  }, [toolInfos])
+
+  const uniqueToolIdsBySkillsDir = useCallback(
+    (toolIds: string[]) => {
+      // Preserve UI order (tools array order), de-dupe by skills_dir.
+      const wanted = new Set(toolIds)
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const tool of toolInfos) {
+        if (!wanted.has(tool.key)) continue
+        if (seen.has(tool.skills_dir)) continue
+        seen.add(tool.skills_dir)
+        out.push(tool.key)
+      }
+      return out
+    },
+    [toolInfos],
   )
 
   const installedToolIds = useMemo(
@@ -517,12 +547,28 @@ function App() {
     setSearchQuery(value)
   }, [])
 
-  const handleSyncTargetChange = useCallback((toolId: string, checked: boolean) => {
-    setSyncTargets((prev) => ({
-      ...prev,
-      [toolId]: checked,
-    }))
-  }, [])
+  const handleSyncTargetChange = useCallback(
+    (toolId: string, checked: boolean) => {
+      const shared = sharedToolIdsByToolId[toolId] ?? [toolId]
+      if (shared.length > 1) {
+        const others = shared.filter((id) => id !== toolId)
+        const otherLabels = others.map((id) => toolLabelById[id] ?? id).join(', ')
+        const ok = window.confirm(
+          t('sharedDirConfirm', {
+            tool: toolLabelById[toolId] ?? toolId,
+            others: otherLabels,
+          }),
+        )
+        if (!ok) return
+      }
+      setSyncTargets((prev) => {
+        const next = { ...prev }
+        for (const id of shared) next[id] = checked
+        return next
+      })
+    },
+    [sharedToolIdsByToolId, t, toolLabelById],
+  )
 
   const handleDeletePrompt = useCallback((skillId: string) => {
     setPendingDeleteId(skillId)
@@ -585,8 +631,8 @@ function App() {
         setSyncTargets((prev) => {
           if (Object.keys(prev).length > 0) return prev
           const next: Record<string, boolean> = {}
-          for (const t of tools) {
-            next[t.id] = status.installed.includes(t.id)
+          for (const t of status.tools) {
+            next[t.key] = status.installed.includes(t.key)
           }
           return next
         })
@@ -639,21 +685,31 @@ function App() {
           name: group.name,
         })
 
-        const targets = tools.filter(
-          (tool) => syncTargets[tool.id] && isInstalled(tool.id),
-        )
+        const selectedInstalledIds = tools
+          .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+          .map((t) => t.id)
+        const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+          .map((id) => tools.find((t) => t.id === id))
+          .filter(Boolean) as ToolOption[]
         for (const tool of targets) {
           setActionMessage(
             t('actions.syncing', { name: group.name, tool: tool.label }),
           )
           try {
+            const overwrite = Boolean(
+              chosenVariantTool &&
+                (chosenVariantTool === tool.id ||
+                  (sharedToolIdsByToolId[chosenVariantTool] ?? []).includes(
+                    tool.id,
+                  )),
+            )
             await invokeTauri('sync_skill_to_tool', {
               sourcePath: installResult.central_path,
               skillId: installResult.skill_id,
               tool: tool.id,
               name: group.name,
               // 自动接管：如果来源就是该工具目录，同步回该工具时需要替换成指向中心仓库的软链
-              overwrite: chosenVariantTool === tool.id,
+              overwrite,
             })
           } catch (err) {
             const raw = err instanceof Error ? err.message : String(err)
@@ -714,9 +770,12 @@ function App() {
         name: localName.trim() || undefined,
       })
       {
-        const targets = tools.filter(
-          (tool) => syncTargets[tool.id] && isInstalled(tool.id),
-        )
+        const selectedInstalledIds = tools
+          .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+          .map((t) => t.id)
+        const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+          .map((id) => tools.find((t) => t.id === id))
+          .filter(Boolean) as ToolOption[]
         if (targets.length === 0) {
           setError(t('errors.noSyncTargets'))
         } else {
@@ -786,9 +845,12 @@ function App() {
           name: gitName.trim() || undefined,
         })
         {
-          const targets = tools.filter(
-            (tool) => syncTargets[tool.id] && isInstalled(tool.id),
-          )
+          const selectedInstalledIds = tools
+            .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+            .map((t) => t.id)
+          const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+            .map((id) => tools.find((t) => t.id === id))
+            .filter(Boolean) as ToolOption[]
           if (targets.length === 0) {
             setError(t('errors.noSyncTargets'))
           } else {
@@ -846,9 +908,12 @@ function App() {
             },
           )
           {
-            const targets = tools.filter(
-              (tool) => syncTargets[tool.id] && isInstalled(tool.id),
-            )
+            const selectedInstalledIds = tools
+              .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+              .map((t) => t.id)
+            const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+              .map((id) => tools.find((t) => t.id === id))
+              .filter(Boolean) as ToolOption[]
             if (targets.length === 0) {
               setError(t('errors.noSyncTargets'))
             } else {
@@ -952,9 +1017,12 @@ function App() {
             },
           )
           {
-            const targets = tools.filter(
-              (tool) => syncTargets[tool.id] && isInstalled(tool.id),
-            )
+            const selectedInstalledIds = tools
+              .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+              .map((t) => t.id)
+            const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+              .map((id) => tools.find((t) => t.id === id))
+              .filter(Boolean) as ToolOption[]
             if (targets.length === 0) {
               collectedErrors.push({
                 title: t('errors.unsyncedTitle', { name: created.name }),
@@ -1045,7 +1113,9 @@ function App() {
   const handleSyncAllManagedToTools = useCallback(
     async (toolIds: string[]) => {
     if (managedSkills.length === 0) return
-      const installedIds = toolIds.filter((id) => isInstalled(id))
+      const installedIds = uniqueToolIdsBySkillsDir(
+        toolIds.filter((id) => isInstalled(id)),
+      )
       if (installedIds.length === 0) return
 
     setLoading(true)
@@ -1096,7 +1166,16 @@ function App() {
       setLoadingStartAt(null)
     }
     },
-    [invokeTauri, isInstalled, loadManagedSkills, managedSkills, showActionErrors, t, tools],
+    [
+      invokeTauri,
+      isInstalled,
+      loadManagedSkills,
+      managedSkills,
+      showActionErrors,
+      t,
+      tools,
+      uniqueToolIdsBySkillsDir,
+    ],
   )
 
   const handleSyncAllNewTools = useCallback(() => {
@@ -1104,18 +1183,31 @@ function App() {
     setSyncTargets((prev) => {
       const next = { ...prev }
       for (const id of toolStatus.newly_installed) {
-        next[id] = true
+        const shared = sharedToolIdsByToolId[id] ?? [id]
+        for (const sid of shared) next[sid] = true
       }
       return next
     })
     setShowNewToolsModal(false)
     void handleSyncAllManagedToTools(toolStatus.newly_installed)
-  }, [handleSyncAllManagedToTools, toolStatus])
+  }, [handleSyncAllManagedToTools, sharedToolIdsByToolId, toolStatus])
 
   const handleToggleToolForSkill = useCallback(
     async (skill: ManagedSkill, toolId: string) => {
     if (loading) return
     const toolLabel = tools.find((t) => t.id === toolId)?.label ?? toolId
+    const shared = sharedToolIdsByToolId[toolId] ?? null
+    if (shared && shared.length > 1) {
+      const others = shared.filter((id) => id !== toolId)
+      const otherLabels = others.map((id) => toolLabelById[id] ?? id).join(', ')
+      const ok = window.confirm(
+        t('sharedDirConfirm', {
+          tool: toolLabel,
+          others: otherLabels,
+        }),
+      )
+      if (!ok) return
+    }
     const target = skill.targets.find((t) => t.tool === toolId)
     const synced = Boolean(target)
 
@@ -1163,7 +1255,15 @@ function App() {
       setLoadingStartAt(null)
     }
     },
-    [invokeTauri, loadManagedSkills, loading, t, tools],
+    [
+      invokeTauri,
+      loadManagedSkills,
+      loading,
+      sharedToolIdsByToolId,
+      t,
+      toolLabelById,
+      tools,
+    ],
   )
 
   const handleUpdateManaged = useCallback(

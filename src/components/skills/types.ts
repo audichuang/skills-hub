@@ -60,6 +60,7 @@ export type ToolInfoDto = {
   key: string
   label: string
   installed: boolean
+  skills_dir: string
 }
 
 export type ToolStatusDto = {
