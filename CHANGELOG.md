@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-22
+
+### Fixed
+- Antigravity global skills directory corrected from `~/.gemini/antigravity/global_skills` to `~/.gemini/antigravity/skills` to match official Antigravity documentation.
+- Release workflow now gracefully handles missing `TAURI_SIGNING_PRIVATE_KEY` by using `--no-sign` for macOS builds.
+
 ## [0.2.0] - 2026-02-01
 
 ### Added
