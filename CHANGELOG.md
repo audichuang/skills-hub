@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 - New local import commands for listing candidates and installing a selected subpath with SKILL.md validation.
 
 ### Changed
-- Antigravity global skills directory updated to `~/.gemini/antigravity/global_skills`.
+- Antigravity global skills directory updated to `~/.gemini/antigravity/skills`.
 - OpenCode global skills directory corrected to `~/.config/opencode/skills`.
 - Tool status now includes `skills_dir`; frontend tool list/sync is driven by backend data and deduped by directory.
 - Sync/unsync now updates records across tools sharing a skills directory to avoid duplicate filesystem work and inconsistent state.

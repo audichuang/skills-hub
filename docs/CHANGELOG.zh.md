@@ -13,7 +13,7 @@
 - 新增本地导入候选列表/按子路径安装的命令，并在安装前校验 SKILL.md。
 
 ### 变更
-- Antigravity 默认全局技能目录更新为 `~/.gemini/antigravity/global_skills`。
+- Antigravity 默认全局技能目录更新为 `~/.gemini/antigravity/skills`。
 - OpenCode 全局技能目录修正为 `~/.config/opencode/skills`。
 - 工具状态接口增加 `skills_dir` 字段，前端列表与同步逻辑改为后端驱动并按目录去重。
 - 同一 skills 目录的工具在同步/取消同步时统一写入与清理记录，避免重复文件操作与状态不一致。

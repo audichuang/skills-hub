@@ -22,7 +22,7 @@
 | `claude_code` | Claude Code | `.claude/skills` | `.claude` |
 | `codex` | Codex | `.codex/skills` | `.codex` |
 | `opencode` | OpenCode | `.config/opencode/skills` | `.config/opencode` |
-| `antigravity` | Antigravity | `.gemini/antigravity/global_skills` | `.gemini/antigravity` |
+| `antigravity` | Antigravity | `.gemini/antigravity/skills` | `.gemini/antigravity` |
 | `amp` | Amp | `.config/agents/skills` | `.config/agents` |
 | `kimi_cli` | Kimi Code CLI | `.config/agents/skills` | `.config/agents` |
 | `augment` | Augment | `.augment/rules` | `.augment` |
