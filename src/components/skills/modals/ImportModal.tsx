@@ -33,7 +33,7 @@ const ImportModal = ({
   if (!open) return null
 
   return (
-    <div className="modal-backdrop" onClick={onRequestClose}>
+    <div className="modal-backdrop">
       <div
         className="modal modal-lg modal-discovered"
         onClick={(e) => e.stopPropagation()}

@@ -34,7 +34,7 @@ const GitPickModal = ({
   ).length
 
   return (
-    <div className="modal-backdrop" onClick={onRequestClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">{t('gitPickTitle')}</div>

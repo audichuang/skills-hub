@@ -1,12 +1,13 @@
 import { memo } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { TFunction } from 'i18next'
-import type { ToolOption, ToolStatusDto } from '../types'
+import type { ClawHubSkill, ToolOption, ToolStatusDto } from '../types'
 
 type AddSkillModalProps = {
   open: boolean
   loading: boolean
   canClose: boolean
-  addModalTab: 'local' | 'git'
+  addModalTab: 'local' | 'git' | 'search'
   localPath: string
   localName: string
   gitUrl: string
@@ -14,8 +15,13 @@ type AddSkillModalProps = {
   syncTargets: Record<string, boolean>
   installedTools: ToolOption[]
   toolStatus: ToolStatusDto | null
+  // ClawHub search
+  searchQuery: string
+  searchResults: ClawHubSkill[]
+  searchLoading: boolean
+  installingSlug: string | null
   onRequestClose: () => void
-  onTabChange: (tab: 'local' | 'git') => void
+  onTabChange: (tab: 'local' | 'git' | 'search') => void
   onLocalPathChange: (value: string) => void
   onPickLocalPath: () => void
   onLocalNameChange: (value: string) => void
@@ -23,6 +29,11 @@ type AddSkillModalProps = {
   onGitNameChange: (value: string) => void
   onSyncTargetChange: (toolId: string, checked: boolean) => void
   onSubmit: () => void
+  // ClawHub search
+  onSearchQueryChange: (value: string) => void
+  onSearchClawHub: () => void
+  onInstallClawHub: (slug: string, version?: string | null) => void
+  onViewClawHubDetail: (slug: string) => void
   t: TFunction
 }
 
@@ -38,6 +49,10 @@ const AddSkillModal = ({
   syncTargets,
   installedTools,
   toolStatus,
+  searchQuery,
+  searchResults,
+  searchLoading,
+  installingSlug,
   onRequestClose,
   onTabChange,
   onLocalPathChange,
@@ -47,6 +62,10 @@ const AddSkillModal = ({
   onGitNameChange,
   onSyncTargetChange,
   onSubmit,
+  onSearchQueryChange,
+  onSearchClawHub,
+  onInstallClawHub,
+  onViewClawHubDetail,
   t,
 }: AddSkillModalProps) => {
   if (!open) return null
@@ -54,7 +73,6 @@ const AddSkillModal = ({
   return (
     <div
       className="modal-backdrop"
-      onClick={() => (canClose ? onRequestClose() : null)}
     >
       <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -85,7 +103,11 @@ const AddSkillModal = ({
             >
               {t('gitTab')}
             </button>
-            <button className="tab-item disabled" type="button" disabled>
+            <button
+              className={`tab-item${addModalTab === 'search' ? ' active' : ''}`}
+              type="button"
+              onClick={() => onTabChange('search')}
+            >
               {t('searchTab')}
             </button>
           </div>
@@ -121,7 +143,7 @@ const AddSkillModal = ({
                 />
               </div>
             </>
-          ) : (
+          ) : addModalTab === 'git' ? (
             <>
               <div className="form-group">
                 <label className="label">{t('repositoryUrl')}</label>
@@ -142,53 +164,151 @@ const AddSkillModal = ({
                 />
               </div>
             </>
-          )}
-
-          <div className="form-group">
-            <label className="label">{t('installToTools')}</label>
-            {toolStatus ? (
-              <div className="tool-matrix">
-                {installedTools.map((tool) => (
-                  <label
-                    key={tool.id}
-                    className={`tool-pill-toggle${
-                      syncTargets[tool.id] ? ' active' : ''
-                    }`}
+          ) : (
+            /* search tab */
+            <>
+              <div className="form-group">
+                <div className="input-row">
+                  <input
+                    className="input"
+                    placeholder={t('searchClawHubPlaceholder')}
+                    value={searchQuery}
+                    onChange={(event) => onSearchQueryChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !searchLoading) onSearchClawHub()
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary input-action"
+                    type="button"
+                    onClick={onSearchClawHub}
+                    disabled={searchLoading || !searchQuery.trim()}
                   >
-                    <input
-                      type="checkbox"
-                      checked={Boolean(syncTargets[tool.id])}
-                      onChange={(event) =>
-                        onSyncTargetChange(tool.id, event.target.checked)
-                      }
-                    />
-                    {syncTargets[tool.id] ? <span className="status-badge" /> : null}
-                    {tool.label}
-                  </label>
+                    {searchLoading ? t('searching') : t('searchButton')}
+                  </button>
+                </div>
+              </div>
+              <div className="clawhub-results">
+                {searchResults.length === 0 && !searchLoading && searchQuery.trim() && (
+                  <div className="helper-text">{t('noSearchResults')}</div>
+                )}
+                {searchResults.map((skill) => (
+                  <div
+                    key={skill.slug}
+                    className="clawhub-result-item"
+                    onClick={() => onViewClawHubDetail(skill.slug)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="clawhub-result-main">
+                      <div className="clawhub-result-info">
+                        <div className="clawhub-result-name">
+                          {skill.displayName || skill.slug}
+                          {skill.version && (
+                            <span className="clawhub-result-version">v{skill.version}</span>
+                          )}
+                          <ChevronRight size={14} className="clawhub-chevron" />
+                        </div>
+                        {skill.summary && (
+                          <div className="clawhub-result-summary">{skill.summary}</div>
+                        )}
+                      </div>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onInstallClawHub(skill.slug, skill.version) }}
+                        disabled={installingSlug === skill.slug}
+                      >
+                        {installingSlug === skill.slug
+                          ? t('installingFromClawHub')
+                          : t('installFromClawHub')}
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
-            ) : (
-              <div className="helper-text">{t('detectingTools')}</div>
-            )}
-            <div className="helper-text">{t('syncAfterCreate')}</div>
+            </>
+          )}
+
+          {/* Tool selection — hidden for search tab since install is per-item */}
+          {addModalTab !== 'search' && (
+            <div className="form-group">
+              <label className="label">{t('installToTools')}</label>
+              {toolStatus ? (
+                <div className="tool-matrix">
+                  {installedTools.map((tool) => (
+                    <label
+                      key={tool.id}
+                      className={`tool-pill-toggle${syncTargets[tool.id] ? ' active' : ''
+                        }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(syncTargets[tool.id])}
+                        onChange={(event) =>
+                          onSyncTargetChange(tool.id, event.target.checked)
+                        }
+                      />
+                      {syncTargets[tool.id] ? <span className="status-badge" /> : null}
+                      {tool.label}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="helper-text">{t('detectingTools')}</div>
+              )}
+              <div className="helper-text">{t('syncAfterCreate')}</div>
+            </div>
+          )}
+
+          {/* Tool selection for search tab — shown when there are results */}
+          {addModalTab === 'search' && searchResults.length > 0 && (
+            <div className="form-group">
+              <label className="label">{t('installToTools')}</label>
+              {toolStatus ? (
+                <div className="tool-matrix">
+                  {installedTools.map((tool) => (
+                    <label
+                      key={tool.id}
+                      className={`tool-pill-toggle${syncTargets[tool.id] ? ' active' : ''
+                        }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(syncTargets[tool.id])}
+                        onChange={(event) =>
+                          onSyncTargetChange(tool.id, event.target.checked)
+                        }
+                      />
+                      {syncTargets[tool.id] ? <span className="status-badge" /> : null}
+                      {tool.label}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="helper-text">{t('detectingTools')}</div>
+              )}
+              <div className="helper-text">{t('syncAfterCreate')}</div>
+            </div>
+          )}
+        </div>
+        {addModalTab !== 'search' && (
+          <div className="modal-footer">
+            <button
+              className="btn btn-secondary"
+              onClick={onRequestClose}
+              disabled={!canClose}
+            >
+              {t('cancel')}
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={onSubmit}
+              disabled={loading}
+            >
+              {addModalTab === 'local' ? t('create') : t('install')}
+            </button>
           </div>
-        </div>
-        <div className="modal-footer">
-          <button
-            className="btn btn-secondary"
-            onClick={onRequestClose}
-            disabled={!canClose}
-          >
-            {t('cancel')}
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={onSubmit}
-            disabled={loading}
-          >
-            {addModalTab === 'local' ? t('create') : t('install')}
-          </button>
-        </div>
+        )}
       </div>
     </div>
   )

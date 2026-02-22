@@ -37,7 +37,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 junction = "1.1"
 uuid = { version = "1", features = ["v4"] }
 urlencoding = "2.1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 mockito = "1"

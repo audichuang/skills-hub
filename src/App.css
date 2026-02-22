@@ -823,6 +823,7 @@
     opacity: 0;
     transform: translateY(2px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -850,12 +851,10 @@
   width: 60%;
   border-radius: 999px;
   animation: shimmer 1.5s infinite linear;
-  background: linear-gradient(
-    90deg,
-    var(--accent-primary) 0%,
-    #60a5fa 50%,
-    var(--accent-primary) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--accent-primary) 0%,
+      #60a5fa 50%,
+      var(--accent-primary) 100%);
   background-size: 200% 100%;
 }
 
@@ -863,6 +862,7 @@
   0% {
     background-position: 100% 0;
   }
+
   100% {
     background-position: -100% 0;
   }
@@ -1539,4 +1539,499 @@
 
 .btn-full {
   width: 100%;
+}
+
+/* ── ClawHub Search ────────────────────────────────────────────── */
+
+.clawhub-results {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clawhub-result-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  transition: all 0.2s;
+}
+
+.clawhub-result-item:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.clawhub-result-item.expanded {
+  border-color: var(--accent-primary);
+  background: var(--bg-element);
+}
+
+.clawhub-result-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clawhub-chevron {
+  color: var(--text-tertiary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── ClawHub Detail Modal ──────────────────────────── */
+
+.clawhub-detail-modal {
+  width: min(880px, calc(100% - 32px)) !important;
+}
+
+.clawhub-detail-modal .modal-body {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.clawhub-detail-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 0;
+  color: var(--text-secondary);
+}
+
+.clawhub-detail-error {
+  padding: 20px;
+  color: var(--accent-error);
+  text-align: center;
+}
+
+.clawhub-full-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ch-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.ch-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.ch-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ch-version-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-element);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.ch-version-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.ch-version-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.ch-stats-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ch-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+  justify-content: center;
+  min-width: 100px;
+}
+
+.ch-stat svg {
+  color: var(--text-tertiary);
+}
+
+.ch-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.ch-author-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ch-author-label {
+  color: var(--text-tertiary);
+}
+
+.ch-author-name {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.ch-author-name:hover {
+  text-decoration: underline;
+}
+
+.ch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ch-tag {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-radius: 100px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+}
+
+.ch-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ch-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.ch-section-content {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ch-dates {
+  display: flex;
+  gap: 24px;
+}
+
+.ch-date-item {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ch-date-label {
+  color: var(--text-tertiary);
+}
+
+/* ── File tree ──────────────────────────────────── */
+
+.ch-file-tree {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-element);
+  padding: 8px 0;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.ch-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.ch-tree-row:hover {
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+
+.ch-tree-row.file {
+  cursor: default;
+}
+
+.ch-tree-icon.dir {
+  color: var(--accent-primary);
+}
+
+.ch-tree-icon.file {
+  color: var(--text-tertiary);
+}
+
+.ch-tree-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Links bar ──────────────────────────────────── */
+
+.ch-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ch-github-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clawhub-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.clawhub-result-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clawhub-result-version {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-element);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.clawhub-result-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Skill Detail Modal ────────────────────────────────────────── */
+
+.skill-detail-body {
+  gap: 16px !important;
+}
+
+.detail-badge-row {
+  display: flex;
+  gap: 8px;
+}
+
+.detail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-element);
+  color: var(--text-secondary);
+}
+
+.detail-badge-git {
+  color: var(--accent-primary);
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+}
+
+.detail-badge-clawhub {
+  color: var(--status-success);
+  background: var(--success-soft-bg);
+  border-color: var(--success-soft-border);
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.detail-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-element);
+}
+
+.detail-meta-full {
+  grid-column: 1 / -1;
+}
+
+.detail-meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.detail-meta-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.detail-meta-value.mono {
+  font-family: var(--font-mono);
+}
+
+.detail-copyable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-element);
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+}
+
+.detail-copyable:hover {
+  background: var(--bg-element-hover);
+  border-color: var(--border-strong);
+}
+
+.detail-copyable .mono {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-copyable svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.detail-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-target-mode {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.detail-link:hover {
+  opacity: 0.8;
+}
+
+/* ── SkillCard clickable ────────────────────────────────────────── */
+
+.skill-card {
+  cursor: pointer;
+}
+
+.skill-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
 }

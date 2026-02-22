@@ -7,6 +7,7 @@ import Header from './components/skills/Header'
 import LoadingOverlay from './components/skills/LoadingOverlay'
 import SkillsList from './components/skills/SkillsList'
 import AddSkillModal from './components/skills/modals/AddSkillModal'
+import ClawHubDetailModal from './components/skills/modals/ClawHubDetailModal'
 import DeleteModal from './components/skills/modals/DeleteModal'
 import GitPickModal from './components/skills/modals/GitPickModal'
 import LocalPickModal from './components/skills/modals/LocalPickModal'
@@ -14,7 +15,9 @@ import ImportModal from './components/skills/modals/ImportModal'
 import NewToolsModal from './components/skills/modals/NewToolsModal'
 import SharedDirModal from './components/skills/modals/SharedDirModal'
 import SettingsModal from './components/skills/modals/SettingsModal'
+import SkillDetailModal from './components/skills/modals/SkillDetailModal'
 import type {
+  ClawHubSkill,
   GitSkillCandidate,
   InstallResultDto,
   LocalSkillCandidate,
@@ -77,13 +80,20 @@ function App() {
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'updated' | 'name'>('updated')
-  const [addModalTab, setAddModalTab] = useState<'local' | 'git'>('git')
+  const [addModalTab, setAddModalTab] = useState<'local' | 'git' | 'search'>('git')
+  // ClawHub search
+  const [clawHubQuery, setClawHubQuery] = useState('')
+  const [clawHubResults, setClawHubResults] = useState<ClawHubSkill[]>([])
+  const [clawHubSearchLoading, setClawHubSearchLoading] = useState(false)
+  const [clawHubInstallingSlug, setClawHubInstallingSlug] = useState<string | null>(null)
+  const [selectedSkill, setSelectedSkill] = useState<ManagedSkill | null>(null)
+  const [viewDetailSlug, setViewDetailSlug] = useState<string | null>(null)
 
   const isTauri =
     typeof window !== 'undefined' &&
     Boolean(
       (window as { __TAURI__?: unknown }).__TAURI__ ||
-        (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
+      (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
     )
 
   const invokeTauri = useCallback(
@@ -697,12 +707,12 @@ function App() {
 
   const toggleAll = useCallback(
     (checked: boolean) => {
-    if (!plan) return
-    const next: Record<string, boolean> = {}
-    plan.groups.forEach((group) => {
-      next[group.name] = checked
-    })
-    setSelected(next)
+      if (!plan) return
+      const next: Record<string, boolean> = {}
+      plan.groups.forEach((group) => {
+        next[group.name] = checked
+      })
+      setSelected(next)
     },
     [plan],
   )
@@ -744,10 +754,10 @@ function App() {
           try {
             const overwrite = Boolean(
               chosenVariantTool &&
-                (chosenVariantTool === tool.id ||
-                  (sharedToolIdsByToolId[chosenVariantTool] ?? []).includes(
-                    tool.id,
-                  )),
+              (chosenVariantTool === tool.id ||
+                (sharedToolIdsByToolId[chosenVariantTool] ?? []).includes(
+                  tool.id,
+                )),
             )
             await invokeTauri('sync_skill_to_tool', {
               sourcePath: installResult.central_path,
@@ -800,6 +810,91 @@ function App() {
       setLoadingStartAt(null)
     }
   }
+
+  const handleSearchClawHub = useCallback(async () => {
+    const q = clawHubQuery.trim()
+    if (!q) return
+    setClawHubSearchLoading(true)
+    try {
+      const results = await invokeTauri<ClawHubSkill[]>('search_clawhub', {
+        query: q,
+        limit: 20,
+      })
+      setClawHubResults(results)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setClawHubSearchLoading(false)
+    }
+  }, [clawHubQuery, invokeTauri])
+
+  const handleInstallClawHub = useCallback(
+    async (slug: string, version?: string | null) => {
+      setClawHubInstallingSlug(slug)
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      try {
+        const installResult = await invokeTauri<InstallResultDto>(
+          'install_clawhub_skill',
+          { slug, version, name: null },
+        )
+
+        // Sync to selected tools
+        const selectedInstalledIds = tools
+          .filter((tool) => syncTargets[tool.id] && isInstalled(tool.id))
+          .map((t) => t.id)
+        const targets = uniqueToolIdsBySkillsDir(selectedInstalledIds)
+          .map((id) => tools.find((t) => t.id === id))
+          .filter(Boolean) as ToolOption[]
+
+        const collectedErrors: { title: string; message: string }[] = []
+        for (const tool of targets) {
+          try {
+            await invokeTauri('sync_skill_to_tool', {
+              sourcePath: installResult.central_path,
+              skillId: installResult.skill_id,
+              tool: tool.id,
+              name: installResult.name,
+            })
+          } catch (err) {
+            const raw = err instanceof Error ? err.message : String(err)
+            collectedErrors.push({
+              title: t('errors.syncFailedTitle', {
+                name: installResult.name,
+                tool: tool.label,
+              }),
+              message: raw,
+            })
+          }
+        }
+
+        await loadManagedSkills()
+        if (collectedErrors.length > 0) {
+          showActionErrors(collectedErrors)
+        } else {
+          setSuccessToastMessage(
+            t('status.localSkillCreated'),
+          )
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setClawHubInstallingSlug(null)
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
+    },
+    [
+      invokeTauri,
+      isInstalled,
+      loadManagedSkills,
+      showActionErrors,
+      syncTargets,
+      t,
+      tools,
+      uniqueToolIdsBySkillsDir,
+    ],
+  )
 
   const handleCreateLocal = async () => {
     if (!localPath.trim()) {
@@ -950,13 +1045,13 @@ function App() {
                 })
               } catch (err) {
                 const raw = err instanceof Error ? err.message : String(err)
-              collectedErrors.push({
-                title: t('errors.syncFailedTitle', {
-                  name: created.name,
-                  tool: tool.label,
-                }),
-                message: raw,
-              })
+                collectedErrors.push({
+                  title: t('errors.syncFailedTitle', {
+                    name: created.name,
+                    tool: tool.label,
+                  }),
+                  message: raw,
+                })
               }
             }
             if (collectedErrors.length > 0) showActionErrors(collectedErrors)
@@ -978,9 +1073,9 @@ function App() {
           const created = await invokeTauri<InstallResultDto>(
             'install_git_selection',
             {
-            repoUrl: url,
-            subpath: candidates[0].subpath,
-            name: gitName.trim() || undefined,
+              repoUrl: url,
+              subpath: candidates[0].subpath,
+              name: gitName.trim() || undefined,
             },
           )
           {
@@ -1218,9 +1313,9 @@ function App() {
           const created = await invokeTauri<InstallResultDto>(
             'install_git_selection',
             {
-            repoUrl: gitCandidatesRepoUrl,
-            subpath: candidate.subpath,
-            name: gitName.trim() || undefined,
+              repoUrl: gitCandidatesRepoUrl,
+              subpath: candidate.subpath,
+              name: gitName.trim() || undefined,
             },
           )
           {
@@ -1319,59 +1414,59 @@ function App() {
 
   const handleSyncAllManagedToTools = useCallback(
     async (toolIds: string[]) => {
-    if (managedSkills.length === 0) return
+      if (managedSkills.length === 0) return
       const installedIds = uniqueToolIdsBySkillsDir(
         toolIds.filter((id) => isInstalled(id)),
       )
       if (installedIds.length === 0) return
 
-    setLoading(true)
-    setLoadingStartAt(Date.now())
-    setError(null)
-    try {
-      const collectedErrors: { title: string; message: string }[] = []
-      for (let si = 0; si < managedSkills.length; si++) {
-        const skill = managedSkills[si]
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        const collectedErrors: { title: string; message: string }[] = []
+        for (let si = 0; si < managedSkills.length; si++) {
+          const skill = managedSkills[si]
           for (let ti = 0; ti < installedIds.length; ti++) {
             const toolId = installedIds[ti]
-          const toolLabel = tools.find((t) => t.id === toolId)?.label ?? toolId
-          setActionMessage(
-            t('actions.syncStep', {
-              index: si + 1,
-              total: managedSkills.length,
-              name: skill.name,
-              tool: toolLabel,
-            }),
-          )
-          try {
-            await invokeTauri('sync_skill_to_tool', {
-              sourcePath: skill.central_path,
-              skillId: skill.id,
-              tool: toolId,
-              name: skill.name,
-            })
-          } catch (err) {
-            const raw = err instanceof Error ? err.message : String(err)
-            if (raw.startsWith('TOOL_NOT_INSTALLED|')) continue
-            collectedErrors.push({
-              title: t('errors.syncFailedTitle', {
+            const toolLabel = tools.find((t) => t.id === toolId)?.label ?? toolId
+            setActionMessage(
+              t('actions.syncStep', {
+                index: si + 1,
+                total: managedSkills.length,
                 name: skill.name,
                 tool: toolLabel,
               }),
-              message: raw,
-            })
+            )
+            try {
+              await invokeTauri('sync_skill_to_tool', {
+                sourcePath: skill.central_path,
+                skillId: skill.id,
+                tool: toolId,
+                name: skill.name,
+              })
+            } catch (err) {
+              const raw = err instanceof Error ? err.message : String(err)
+              if (raw.startsWith('TOOL_NOT_INSTALLED|')) continue
+              collectedErrors.push({
+                title: t('errors.syncFailedTitle', {
+                  name: skill.name,
+                  tool: toolLabel,
+                }),
+                message: raw,
+              })
+            }
           }
         }
+        setActionMessage(t('status.syncCompleted'))
+        setSuccessToastMessage(t('status.syncCompleted'))
+        setActionMessage(null)
+        await loadManagedSkills()
+        if (collectedErrors.length > 0) showActionErrors(collectedErrors)
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
       }
-      setActionMessage(t('status.syncCompleted'))
-      setSuccessToastMessage(t('status.syncCompleted'))
-      setActionMessage(null)
-      await loadManagedSkills()
-      if (collectedErrors.length > 0) showActionErrors(collectedErrors)
-    } finally {
-      setLoading(false)
-      setLoadingStartAt(null)
-    }
     },
     [
       invokeTauri,
@@ -1470,24 +1565,24 @@ function App() {
 
   const handleUpdateManaged = useCallback(
     async (skill: ManagedSkill) => {
-    setLoading(true)
-    setLoadingStartAt(Date.now())
-    setError(null)
-    try {
-      setActionMessage(t('actions.updating', { name: skill.name }))
-      await invokeTauri<UpdateResultDto>('update_managed_skill', { skillId: skill.id })
-      const updatedText = t('status.updated', { name: skill.name })
-      setActionMessage(updatedText)
-      setSuccessToastMessage(updatedText)
-      setActionMessage(null)
-      await loadManagedSkills()
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err)
-      setError(raw)
-    } finally {
-      setLoading(false)
-      setLoadingStartAt(null)
-    }
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        setActionMessage(t('actions.updating', { name: skill.name }))
+        await invokeTauri<UpdateResultDto>('update_managed_skill', { skillId: skill.id })
+        const updatedText = t('status.updated', { name: skill.name })
+        setActionMessage(updatedText)
+        setSuccessToastMessage(updatedText)
+        setActionMessage(null)
+        await loadManagedSkills()
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        setError(raw)
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
     },
     [invokeTauri, loadManagedSkills, t],
   )
@@ -1568,9 +1663,10 @@ function App() {
             onUpdateSkill={handleUpdateSkill}
             onDeleteSkill={handleDeletePrompt}
             onToggleTool={handleToggleToolForSkill}
+            onViewDetail={setSelectedSkill}
             t={t}
           />
-          </div>
+        </div>
       </main>
 
       <AddSkillModal
@@ -1585,6 +1681,10 @@ function App() {
         syncTargets={syncTargets}
         installedTools={installedTools}
         toolStatus={toolStatus}
+        searchQuery={clawHubQuery}
+        searchResults={clawHubResults}
+        searchLoading={clawHubSearchLoading}
+        installingSlug={clawHubInstallingSlug}
         onRequestClose={handleCloseAdd}
         onTabChange={setAddModalTab}
         onLocalPathChange={setLocalPath}
@@ -1594,6 +1694,10 @@ function App() {
         onGitNameChange={setGitName}
         onSyncTargetChange={handleSyncTargetChange}
         onSubmit={addModalTab === 'local' ? handleCreateLocal : handleCreateGit}
+        onSearchQueryChange={setClawHubQuery}
+        onSearchClawHub={handleSearchClawHub}
+        onInstallClawHub={handleInstallClawHub}
+        onViewClawHubDetail={setViewDetailSlug}
         t={t}
       />
 
@@ -1686,7 +1790,29 @@ function App() {
         onInstall={handleInstallSelectedCandidates}
         t={t}
       />
-      </div>
+
+      <SkillDetailModal
+        skill={selectedSkill}
+        installedTools={installedTools}
+        loading={loading}
+        formatRelative={formatRelative}
+        onUpdate={handleUpdateSkill}
+        onDelete={handleDeletePrompt}
+        onToggleTool={handleToggleToolForSkill}
+        onRequestClose={() => setSelectedSkill(null)}
+        invokeTauri={invokeTauri}
+        t={t}
+      />
+
+      <ClawHubDetailModal
+        slug={viewDetailSlug}
+        installingSlug={clawHubInstallingSlug}
+        onInstall={handleInstallClawHub}
+        onRequestClose={() => setViewDetailSlug(null)}
+        invokeTauri={invokeTauri}
+        t={t}
+      />
+    </div>
   )
 }
 

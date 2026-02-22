@@ -17,7 +17,7 @@
     "version:sync": "node scripts/version.mjs sync",
     "version:check": "node scripts/version.mjs check",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
     "tauri:icon:desktop": "node scripts/tauri-icon-desktop.mjs",
     "tauri:build": "npm run version:check && tauri build",
     "tauri:build:mac:dmg": "npm run tauri:build -- --bundles dmg",

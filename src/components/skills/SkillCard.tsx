@@ -19,6 +19,7 @@ type SkillCardProps = {
   onUpdate: (skill: ManagedSkill) => void
   onDelete: (skillId: string) => void
   onToggleTool: (skill: ManagedSkill, toolId: string) => void
+  onViewDetail: (skill: ManagedSkill) => void
   t: TFunction
 }
 
@@ -32,6 +33,7 @@ const SkillCard = ({
   onUpdate,
   onDelete,
   onToggleTool,
+  onViewDetail,
   t,
 }: SkillCardProps) => {
   const typeKey = skill.source_type.toLowerCase()
@@ -56,7 +58,7 @@ const SkillCard = ({
   }
 
   return (
-    <div className="skill-card">
+    <div className="skill-card" onClick={() => onViewDetail(skill)}>
       <div className="skill-icon">{iconNode}</div>
       <div className="skill-main">
         <div className="skill-header-row">
@@ -70,7 +72,7 @@ const SkillCard = ({
                 type="button"
                 title={t('copy')}
                 aria-label={t('copy')}
-                onClick={() => void handleCopy()}
+                onClick={(e) => { e.stopPropagation(); void handleCopy() }}
                 disabled={!copyValue}
               >
                 {github.label}
@@ -86,7 +88,7 @@ const SkillCard = ({
                 type="button"
                 title={t('copy')}
                 aria-label={t('copy')}
-                onClick={() => void handleCopy()}
+                onClick={(e) => { e.stopPropagation(); void handleCopy() }}
                 disabled={!copyValue}
               >
                 <span className="mono">{getSkillSourceLabel(skill)}</span>
@@ -116,7 +118,7 @@ const SkillCard = ({
                     ? `${tool.label} (${target?.mode ?? t('unknown')})`
                     : tool.label
                 }
-                onClick={() => void onToggleTool(skill, tool.id)}
+                onClick={(e) => { e.stopPropagation(); void onToggleTool(skill, tool.id) }}
               >
                 {synced ? <span className="status-badge" /> : null}
                 {tool.label}
@@ -125,7 +127,7 @@ const SkillCard = ({
           })}
         </div>
       </div>
-      <div className="skill-actions-col">
+      <div className="skill-actions-col" onClick={(e) => e.stopPropagation()}>
         <button
           className="card-btn primary-action"
           type="button"

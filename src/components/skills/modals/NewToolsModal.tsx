@@ -21,7 +21,7 @@ const NewToolsModal = ({
   if (!open) return null
 
   return (
-    <div className="modal-backdrop" onClick={onLater}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title">{t('newToolsTitle')}</div>
         <div className="modal-body">

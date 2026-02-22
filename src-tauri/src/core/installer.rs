@@ -405,6 +405,19 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
         }
         copy_dir_recursive(&source_path, &staging_dir)
             .with_context(|| format!("copy {:?} -> {:?}", source_path, staging_dir))?;
+    } else if record.source_type == "clawhub" {
+        // ClawHub skills are downloaded as point-in-time snapshots.
+        // Re-download from ClawHub to update.
+        let slug = record
+            .source_ref
+            .as_deref()
+            .and_then(|r| r.strip_prefix("clawhub://"))
+            .ok_or_else(|| anyhow::anyhow!("missing clawhub slug in source_ref"))?;
+        let temp_dir = tempfile::tempdir().context("create temp dir for clawhub update")?;
+        let extracted =
+            super::clawhub_api::download_and_extract_clawhub_skill(slug, None, temp_dir.path())?;
+        copy_dir_recursive(&extracted, &staging_dir)
+            .with_context(|| format!("copy {:?} -> {:?}", extracted, staging_dir))?;
     } else {
         anyhow::bail!("unsupported source_type for update: {}", record.source_type);
     }

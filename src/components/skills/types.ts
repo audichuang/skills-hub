@@ -84,3 +84,12 @@ export type UpdateResultDto = {
   source_revision?: string | null
   updated_targets: string[]
 }
+
+export type ClawHubSkill = {
+  slug: string
+  displayName: string
+  summary?: string | null
+  version?: string | null
+  score: number
+  updatedAt?: number | null
+}

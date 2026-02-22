@@ -9,6 +9,7 @@ use crate::core::cache_cleanup::{
     set_git_cache_ttl_secs as set_git_cache_ttl_secs_core,
 };
 use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
+use crate::core::clawhub_api;
 use crate::core::github_search::{search_github_repos, RepoSummary};
 use crate::core::installer::{
     install_git_skill, install_git_skill_from_selection, install_local_skill,
@@ -784,6 +785,78 @@ fn get_managed_skills_impl(store: &SkillStore) -> Result<Vec<ManagedSkillDto>, S
             }
         })
         .collect())
+}
+
+// ── ClawHub commands ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn search_clawhub(
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<clawhub_api::ClawHubSkill>, String> {
+    let limit = limit.unwrap_or(20) as usize;
+    tauri::async_runtime::spawn_blocking(move || clawhub_api::search_clawhub(&query, limit))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn get_clawhub_skill_cmd(
+    slug: String,
+) -> Result<clawhub_api::ClawHubSkillDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || clawhub_api::get_clawhub_skill(&slug))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn get_github_tree_cmd(
+    owner: String,
+    repo: String,
+) -> Result<Vec<clawhub_api::SkillFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || clawhub_api::get_github_tree(&owner, &repo))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub async fn install_clawhub_skill(
+    app: tauri::AppHandle,
+    store: State<'_, SkillStore>,
+    slug: String,
+    version: Option<String>,
+    name: Option<String>,
+) -> Result<InstallResultDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let temp_dir = tempfile::tempdir().context("create temp dir for clawhub download")?;
+        let extracted_path = clawhub_api::download_and_extract_clawhub_skill(
+            &slug,
+            version.as_deref(),
+            temp_dir.path(),
+        )?;
+
+        let display_name = name.unwrap_or_else(|| slug.clone());
+        let result =
+            install_local_skill(&app, &store, &extracted_path, Some(display_name))?;
+
+        // Fix source info: replace temp path with clawhub slug so the record
+        // remains valid after the temp dir is cleaned up.
+        if let Some(mut record) = store.get_skill_by_id(&result.skill_id)? {
+            record.source_type = "clawhub".to_string();
+            record.source_ref = Some(format!("clawhub://{}", slug));
+            store.upsert_skill(&record)?;
+        }
+
+        // temp_dir is automatically cleaned up when dropped
+        Ok::<_, anyhow::Error>(to_install_dto(result))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
 }
 
 #[cfg(test)]

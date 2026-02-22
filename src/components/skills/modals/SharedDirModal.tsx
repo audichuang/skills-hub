@@ -23,7 +23,7 @@ const SharedDirModal = ({
   if (!open) return null
 
   return (
-    <div className="modal-backdrop" onClick={onRequestClose}>
+    <div className="modal-backdrop">
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}

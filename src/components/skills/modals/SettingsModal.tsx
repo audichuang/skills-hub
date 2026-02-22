@@ -68,7 +68,7 @@ const SettingsModal = ({
   if (!open) return null
 
   return (
-    <div className="modal-backdrop" onClick={onRequestClose}>
+    <div className="modal-backdrop">
       <div
         className="modal settings-modal"
         role="dialog"
@@ -128,9 +128,8 @@ const SettingsModal = ({
             <div className="settings-theme-options" role="group" aria-labelledby="settings-theme-label">
               <button
                 type="button"
-                className={`settings-theme-btn ${
-                  themePreference === 'system' ? 'active' : ''
-                }`}
+                className={`settings-theme-btn ${themePreference === 'system' ? 'active' : ''
+                  }`}
                 aria-pressed={themePreference === 'system'}
                 onClick={() => onThemeChange('system')}
               >
@@ -138,9 +137,8 @@ const SettingsModal = ({
               </button>
               <button
                 type="button"
-                className={`settings-theme-btn ${
-                  themePreference === 'light' ? 'active' : ''
-                }`}
+                className={`settings-theme-btn ${themePreference === 'light' ? 'active' : ''
+                  }`}
                 aria-pressed={themePreference === 'light'}
                 onClick={() => onThemeChange('light')}
               >
@@ -148,9 +146,8 @@ const SettingsModal = ({
               </button>
               <button
                 type="button"
-                className={`settings-theme-btn ${
-                  themePreference === 'dark' ? 'active' : ''
-                }`}
+                className={`settings-theme-btn ${themePreference === 'dark' ? 'active' : ''
+                  }`}
                 aria-pressed={themePreference === 'dark'}
                 onClick={() => onThemeChange('dark')}
               >

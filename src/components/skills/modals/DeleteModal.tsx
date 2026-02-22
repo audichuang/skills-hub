@@ -22,7 +22,7 @@ const DeleteModal = ({
   if (!open) return null
 
   return (
-    <div className="modal-backdrop" onClick={onRequestClose}>
+    <div className="modal-backdrop">
       <div
         className="modal modal-delete"
         onClick={(e) => e.stopPropagation()}
