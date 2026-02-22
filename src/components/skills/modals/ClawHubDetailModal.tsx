@@ -136,27 +136,30 @@ const ClawHubDetailModal = ({
     useEffect(() => {
         if (!slug) return
         let cancelled = false
-        setLoading(true)
-        setError(null)
-        setDetail(null)
-        setFileTree(null)
-        invokeTauri<ClawHubFullDetail>('get_clawhub_skill_cmd', { slug })
-            .then((d) => {
+        const fetchDetail = async () => {
+            setLoading(true)
+            setError(null)
+            setDetail(null)
+            setFileTree(null)
+            try {
+                const d = await invokeTauri<ClawHubFullDetail>('get_clawhub_skill_cmd', { slug })
                 if (cancelled) return
                 setDetail(d)
                 if (d.ownerHandle) {
                     setTreeLoading(true)
-                    invokeTauri<FileEntry[]>('get_github_tree_cmd', {
-                        owner: d.ownerHandle,
-                        repo: d.slug,
-                    })
-                        .then((files) => { if (!cancelled) setFileTree(buildTree(files)) })
-                        .catch(() => { /* repo might be private */ })
-                        .finally(() => { if (!cancelled) setTreeLoading(false) })
+                    try {
+                        const files = await invokeTauri<FileEntry[]>('get_github_tree_cmd', {
+                            owner: d.ownerHandle,
+                            repo: d.slug,
+                        })
+                        if (!cancelled) setFileTree(buildTree(files))
+                    } catch { /* repo might be private */ }
+                    finally { if (!cancelled) setTreeLoading(false) }
                 }
-            })
-            .catch((e) => { if (!cancelled) setError(String(e)) })
-            .finally(() => { if (!cancelled) setLoading(false) })
+            } catch (e) { if (!cancelled) setError(String(e)) }
+            finally { if (!cancelled) setLoading(false) }
+        }
+        void fetchDetail()
         return () => { cancelled = true }
     }, [slug, invokeTauri])
 

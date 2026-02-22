@@ -44,9 +44,7 @@ pub fn install_local_skill<R: tauri::Runtime>(
     ensure_central_repo(&central_dir)?;
     let central_path = central_dir.join(&name);
 
-    if central_path.exists() {
-        anyhow::bail!("skill already exists in central repo: {:?}", central_path);
-    }
+    cleanup_orphan_central_path(&central_path, store)?;
 
     copy_dir_recursive(source_path, &central_path)
         .with_context(|| format!("copy {:?} -> {:?}", source_path, central_path))?;
@@ -102,9 +100,7 @@ pub fn install_git_skill<R: tauri::Runtime>(
     ensure_central_repo(&central_dir)?;
     let central_path = central_dir.join(&name);
 
-    if central_path.exists() {
-        anyhow::bail!("skill already exists in central repo: {:?}", central_path);
-    }
+    cleanup_orphan_central_path(&central_path, store)?;
 
     // Always clone into a temp dir first, then copy the skill directory into central repo.
     // This avoids storing a full git repo (with .git) inside central repo and allows
@@ -718,19 +714,21 @@ pub fn install_git_skill_from_selection<R: tauri::Runtime>(
 ) -> Result<InstallResult> {
     let parsed = parse_github_url(repo_url);
     let display_name = name.unwrap_or_else(|| {
-        subpath
-            .rsplit('/')
-            .next()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| derive_name_from_repo_url(&parsed.clone_url))
+        if subpath == "." {
+            derive_name_from_repo_url(&parsed.clone_url)
+        } else {
+            subpath
+                .rsplit('/')
+                .next()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| derive_name_from_repo_url(&parsed.clone_url))
+        }
     });
 
     let central_dir = resolve_central_repo_path(app, store)?;
     ensure_central_repo(&central_dir)?;
     let central_path = central_dir.join(&display_name);
-    if central_path.exists() {
-        anyhow::bail!("skill already exists in central repo: {:?}", central_path);
-    }
+    cleanup_orphan_central_path(&central_path, store)?;
 
     let (repo_dir, revision) =
         clone_to_cache(app, store, &parsed.clone_url, parsed.branch.as_deref())?;
@@ -903,6 +901,43 @@ fn repo_cache_key(clone_url: &str, branch: Option<&str>) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Check if directory exists without a matching DB record (orphan) and clean it up.
+/// If a matching DB record exists, bail with "already exists" error.
+fn cleanup_orphan_central_path(central_path: &Path, store: &SkillStore) -> Result<()> {
+    if !central_path.exists() {
+        return Ok(());
+    }
+    // Safety: refuse to touch paths whose file_name is missing, ".", or "..".
+    let fname = central_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if fname.is_empty() || fname == "." || fname == ".." {
+        anyhow::bail!("skill already exists in central repo: {:?}", central_path);
+    }
+    let has_db_record = store
+        .list_skills()?
+        .iter()
+        .any(|s| Path::new(&s.central_path) == central_path);
+    if has_db_record {
+        anyhow::bail!("skill already exists in central repo: {:?}", central_path);
+    }
+    log::warn!("[installer] removing orphan dir {:?}", central_path);
+    std::fs::remove_dir_all(central_path)
+        .with_context(|| format!("failed to remove orphan dir {:?}", central_path))?;
+    Ok(())
+}
+
+/// Accept frontmatter delimiters: 3+ consecutive `-` or `*` (e.g. `---`, `***`, `------...------`).
+fn is_frontmatter_delimiter(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.len() < 3 {
+        return false;
+    }
+    let first = trimmed.chars().next().unwrap();
+    (first == '-' || first == '*') && trimmed.chars().all(|c| c == first)
+}
+
 fn parse_skill_md(path: &Path) -> Option<(String, Option<String>)> {
     parse_skill_md_with_reason(path).ok()
 }
@@ -910,7 +945,7 @@ fn parse_skill_md(path: &Path) -> Option<(String, Option<String>)> {
 fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &'static str> {
     let text = std::fs::read_to_string(path).map_err(|_| "read_failed")?;
     let mut lines = text.lines();
-    if lines.next().map(|v| v.trim()) != Some("---") {
+    if !lines.next().map(is_frontmatter_delimiter).unwrap_or(false) {
         return Err("invalid_frontmatter");
     }
     let mut name: Option<String> = None;
@@ -918,7 +953,7 @@ fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &
     let mut found_end = false;
     for line in lines.by_ref() {
         let l = line.trim();
-        if l == "---" {
+        if is_frontmatter_delimiter(l) {
             found_end = true;
             break;
         }

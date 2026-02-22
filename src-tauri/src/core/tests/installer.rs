@@ -110,6 +110,91 @@ body
 }
 
 #[test]
+fn parses_skill_md_with_variant_delimiters() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // *** start + long dashes end
+    let p1 = dir.path().join("s1.md");
+    fs::write(
+        &p1,
+        "***\nname: funday-course\ndescription: \"test\"\n------------------------------\n\nbody\n",
+    )
+    .unwrap();
+    let (name, desc) = super::parse_skill_md(&p1).unwrap();
+    assert_eq!(name, "funday-course");
+    assert_eq!(desc.as_deref(), Some("test"));
+
+    // *** start + *** end
+    let p2 = dir.path().join("s2.md");
+    fs::write(&p2, "***\nname: star-skill\n***\n\nbody\n").unwrap();
+    let (name, _) = super::parse_skill_md(&p2).unwrap();
+    assert_eq!(name, "star-skill");
+
+    // long dashes start + long dashes end
+    let p3 = dir.path().join("s3.md");
+    fs::write(&p3, "----------\nname: dashed\n----------\n").unwrap();
+    let (name, _) = super::parse_skill_md(&p3).unwrap();
+    assert_eq!(name, "dashed");
+
+    // standard --- still works
+    let p4 = dir.path().join("s4.md");
+    fs::write(&p4, "---\nname: standard\n---\n").unwrap();
+    let (name, _) = super::parse_skill_md(&p4).unwrap();
+    assert_eq!(name, "standard");
+}
+
+#[test]
+fn install_cleans_orphan_dir() {
+    let app = tauri::test::mock_app();
+    let (_dir, store) = make_store();
+
+    let central_root = tempfile::tempdir().unwrap();
+    set_central_path(&store, central_root.path());
+
+    let source = tempfile::tempdir().unwrap();
+    fs::write(
+        source.path().join("SKILL.md"),
+        b"---\nname: orphan-test\n---\n",
+    )
+    .unwrap();
+    fs::write(source.path().join("a.txt"), b"content").unwrap();
+
+    // Create an orphan directory (exists on disk but no DB record)
+    let orphan_path = central_root.path().join("orphan-test");
+    fs::create_dir_all(&orphan_path).unwrap();
+    fs::write(orphan_path.join("old.txt"), b"stale").unwrap();
+    assert!(orphan_path.exists());
+
+    // Install should succeed by cleaning the orphan dir first
+    let res = super::install_local_skill(
+        app.handle(),
+        &store,
+        source.path(),
+        Some("orphan-test".to_string()),
+    )
+    .unwrap();
+    assert!(res.central_path.exists());
+
+    // Verify the content is from source, not the orphan
+    assert!(res.central_path.join("a.txt").exists());
+    assert!(!res.central_path.join("old.txt").exists());
+
+    // Now installing again should fail because DB record exists
+    let source2 = tempfile::tempdir().unwrap();
+    fs::write(source2.path().join("SKILL.md"), b"---\nname: x\n---\n").unwrap();
+    let err = match super::install_local_skill(
+        app.handle(),
+        &store,
+        source2.path(),
+        Some("orphan-test".to_string()),
+    ) {
+        Ok(_) => panic!("expected error"),
+        Err(e) => e,
+    };
+    assert!(format!("{:#}", err).contains("skill already exists"));
+}
+
+#[test]
 fn installs_local_skill_and_updates_from_source() {
     let app = tauri::test::mock_app();
     let (_dir, store) = make_store();

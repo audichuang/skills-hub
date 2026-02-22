@@ -840,8 +840,7 @@ pub async fn install_clawhub_skill(
         )?;
 
         let display_name = name.unwrap_or_else(|| slug.clone());
-        let result =
-            install_local_skill(&app, &store, &extracted_path, Some(display_name))?;
+        let result = install_local_skill(&app, &store, &extracted_path, Some(display_name))?;
 
         // Fix source info: replace temp path with clawhub slug so the record
         // remains valid after the temp dir is cleaned up.

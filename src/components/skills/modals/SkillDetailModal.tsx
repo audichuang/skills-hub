@@ -47,19 +47,24 @@ const SkillDetailModal = ({
 
     useEffect(() => {
         if (!skill || skill.source_type !== 'clawhub') {
-            setClawHubDetail(null)
-            setDetailLoading(false)
             return
         }
         const slug = skill.source_ref?.replace('clawhub://', '')
         if (!slug) return
 
         let cancelled = false
-        setDetailLoading(true)
-        invokeTauri<ClawHubDetail>('get_clawhub_skill_cmd', { slug })
-            .then((detail) => { if (!cancelled) setClawHubDetail(detail) })
-            .catch(() => { if (!cancelled) setClawHubDetail(null) })
-            .finally(() => { if (!cancelled) setDetailLoading(false) })
+        const fetchDetail = async () => {
+            setDetailLoading(true)
+            try {
+                const detail = await invokeTauri<ClawHubDetail>('get_clawhub_skill_cmd', { slug })
+                if (!cancelled) setClawHubDetail(detail)
+            } catch {
+                if (!cancelled) setClawHubDetail(null)
+            } finally {
+                if (!cancelled) setDetailLoading(false)
+            }
+        }
+        void fetchDetail()
         return () => { cancelled = true }
     }, [skill, invokeTauri])
 

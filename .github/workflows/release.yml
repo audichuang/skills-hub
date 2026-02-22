@@ -448,3 +448,69 @@ jobs:
             updater.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew-tap:
+    name: Update Homebrew Tap
+    runs-on: macos-14
+    needs: assemble-updater-json
+    if: ${{ !contains(github.ref_name, '-') }}
+    steps:
+      - name: Calculate SHA256 from release DMGs
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+
+          echo "Downloading aarch64 DMG..."
+          curl -fSL -o arm.dmg \
+            "https://github.com/${{ github.repository }}/releases/download/${TAG}/Skills-Hub-${TAG}-macOS-aarch64.dmg"
+          SHA_ARM=$(shasum -a 256 arm.dmg | awk '{print $1}')
+          echo "SHA256 (arm): $SHA_ARM"
+
+          echo "Downloading x86_64 DMG..."
+          curl -fSL -o intel.dmg \
+            "https://github.com/${{ github.repository }}/releases/download/${TAG}/Skills-Hub-${TAG}-macOS-x86_64.dmg"
+          SHA_INTEL=$(shasum -a 256 intel.dmg | awk '{print $1}')
+          echo "SHA256 (intel): $SHA_INTEL"
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SHA_ARM=$SHA_ARM" >> "$GITHUB_ENV"
+          echo "SHA_INTEL=$SHA_INTEL" >> "$GITHUB_ENV"
+
+      - name: Update homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "⚠️ HOMEBREW_TAP_TOKEN not configured, skipping tap update"
+            exit 0
+          fi
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-tap.git" tap
+          cd tap
+
+          CASK_FILE="Casks/skills-hub.rb"
+          if [ ! -f "$CASK_FILE" ]; then
+            echo "❌ $CASK_FILE not found in homebrew-tap"
+            exit 1
+          fi
+
+          # Update version
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" "$CASK_FILE"
+          # Update sha256 (arm line first, intel line second)
+          sed -i '' "s/sha256 arm:   \"[a-f0-9]*\"/sha256 arm:   \"${SHA_ARM}\"/" "$CASK_FILE"
+          sed -i '' "s/intel: \"[a-f0-9]*\"/intel: \"${SHA_INTEL}\"/" "$CASK_FILE"
+
+          echo "Updated $CASK_FILE:"
+          cat "$CASK_FILE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$CASK_FILE"
+          git commit -m "chore: bump skills-hub to v${VERSION}"
+          git push

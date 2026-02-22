@@ -39,11 +39,7 @@ pub fn search_clawhub(query: &str, limit: usize) -> Result<Vec<ClawHubSkill>> {
     search_clawhub_inner(CLAWHUB_BASE_URL, query, limit)
 }
 
-fn search_clawhub_inner(
-    base_url: &str,
-    query: &str,
-    limit: usize,
-) -> Result<Vec<ClawHubSkill>> {
+fn search_clawhub_inner(base_url: &str, query: &str, limit: usize) -> Result<Vec<ClawHubSkill>> {
     let client = Client::new();
     let base_url = base_url.trim_end_matches('/');
     let url = format!(
@@ -156,11 +152,7 @@ pub fn get_clawhub_skill(slug: &str) -> Result<ClawHubSkillDetail> {
 fn get_clawhub_skill_inner(base_url: &str, slug: &str) -> Result<ClawHubSkillDetail> {
     let client = Client::new();
     let base_url = base_url.trim_end_matches('/');
-    let url = format!(
-        "{}/api/v1/skills/{}",
-        base_url,
-        urlencoding::encode(slug)
-    );
+    let url = format!("{}/api/v1/skills/{}", base_url, urlencoding::encode(slug));
 
     let response = client
         .get(url)
@@ -178,10 +170,13 @@ fn get_clawhub_skill_inner(base_url: &str, slug: &str) -> Result<ClawHubSkillDet
 
     // extract tag names
     let tags = skill.tags.as_ref().and_then(|v| {
-        v.as_object().map(|obj| obj.keys().cloned().collect::<Vec<_>>())
+        v.as_object()
+            .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
     });
 
-    let github_url = result.owner.as_ref()
+    let github_url = result
+        .owner
+        .as_ref()
         .and_then(|o| o.handle.as_ref())
         .map(|handle| format!("https://github.com/{}/{}", handle, &skill.slug));
 
