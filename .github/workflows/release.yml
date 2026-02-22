@@ -200,7 +200,12 @@ jobs:
             echo "ℹ️ 未配置 APPLE_SIGNING_IDENTITY，构建未签名版本"
             unset APPLE_SIGNING_IDENTITY
           fi
-          npm run tauri:build -- --target ${{ matrix.target }} --bundles app,dmg
+          EXTRA_ARGS=""
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "ℹ️ 未配置 TAURI_SIGNING_PRIVATE_KEY，跳过 updater 签名"
+            EXTRA_ARGS="--no-sign"
+          fi
+          npm run tauri:build -- --target ${{ matrix.target }} --bundles app,dmg $EXTRA_ARGS
           echo "=== Build completed ==="
           ls -la src-tauri/target/${{ matrix.target }}/release/bundle/ || true
 
@@ -267,30 +272,25 @@ jobs:
             fi
           done
 
-          if [ -z "${TAR_GZ}" ]; then
-            echo "❌ 未找到 *.tar.gz updater 产物（target=${TARGET}, arch=${ARCH}）。请确认 `src-tauri/tauri.conf.json` 已设置 `bundle.createUpdaterArtifacts=true`，且构建包含 `--bundles app`。" >&2
-            for dir in "${BUNDLE_DIRS[@]}"; do
-              echo "---- list: ${dir}" >&2
-              ls -la "${dir}" 2>/dev/null || true
-              find "${dir}" -maxdepth 6 -type f 2>/dev/null | head -n 200 >&2 || true
-            done
-            exit 1
+          # updater tar.gz + sig are optional (require TAURI_SIGNING_PRIVATE_KEY)
+          if [ -n "${TAR_GZ}" ]; then
+            NEW_TAR_GZ="Skills-Hub-${VERSION}-macOS-${ARCH}.tar.gz"
+            cp "${TAR_GZ}" "release-assets/${NEW_TAR_GZ}"
+            if [ -f "${TAR_GZ}.sig" ]; then
+              cp "${TAR_GZ}.sig" "release-assets/${NEW_TAR_GZ}.sig"
+            else
+              echo "⚠️ 未找到 updater 签名文件（可选）" >&2
+            fi
+          else
+            echo "ℹ️ 未找到 updater tar.gz（未配置 TAURI_SIGNING_PRIVATE_KEY 时属正常）" >&2
           fi
-
-          if [ ! -f "${TAR_GZ}.sig" ]; then
-            echo "❌ 未找到 updater 签名文件：${TAR_GZ}.sig" >&2
-            exit 1
-          fi
-
-          NEW_TAR_GZ="Skills-Hub-${VERSION}-macOS-${ARCH}.tar.gz"
-          cp "${TAR_GZ}" "release-assets/${NEW_TAR_GZ}"
-          cp "${TAR_GZ}.sig" "release-assets/${NEW_TAR_GZ}.sig"
 
           if [ -n "${DMG}" ]; then
             NEW_DMG="Skills-Hub-${VERSION}-macOS-${ARCH}.dmg"
             cp "${DMG}" "release-assets/${NEW_DMG}"
           else
-            echo "⚠️ 未找到 macOS .dmg（可选）" >&2
+            echo "❌ 未找到 macOS .dmg" >&2
+            exit 1
           fi
 
       - name: Prepare Windows Assets
@@ -392,34 +392,35 @@ jobs:
           done
 
           if [ -z "${mac_arm_url:-}" ] && [ -z "${mac_x64_url:-}" ]; then
-            echo "❌ 未找到任何 macOS updater 签名（dl/*.sig）; 请确认构建产物包含 *.tar.gz.sig" >&2
-            exit 1
+            echo "ℹ️ 未找到 macOS updater 签名，跳过 updater.json 生成（未配置 TAURI_SIGNING_PRIVATE_KEY 时属正常）"
+            echo '{}' > updater.json
+          else
+
+            tmp_json=$(mktemp)
+            {
+              echo '{'
+              echo "  \"version\": \"$VERSION\","
+              echo "  \"notes\": \"Release $TAG\","
+              echo "  \"pub_date\": \"$PUB_DATE\","
+              echo '  "platforms": {'
+              first=1
+              if [ -n "${mac_arm_url:-}" ] && [ -n "${mac_arm_sig:-}" ]; then
+                [ $first -eq 0 ] && echo ','
+                echo "    \"darwin-aarch64\": {\"signature\": \"$mac_arm_sig\", \"url\": \"$mac_arm_url\"}"
+                first=0
+              fi
+              if [ -n "${mac_x64_url:-}" ] && [ -n "${mac_x64_sig:-}" ]; then
+                [ $first -eq 0 ] && echo ','
+                echo "    \"darwin-x86_64\": {\"signature\": \"$mac_x64_sig\", \"url\": \"$mac_x64_url\"}"
+                first=0
+              fi
+              echo '  }'
+              echo '}'
+            } > "$tmp_json"
+
+            cat "$tmp_json"
+            mv "$tmp_json" updater.json
           fi
-
-          tmp_json=$(mktemp)
-          {
-            echo '{'
-            echo "  \"version\": \"$VERSION\","
-            echo "  \"notes\": \"Release $TAG\","
-            echo "  \"pub_date\": \"$PUB_DATE\","
-            echo '  "platforms": {'
-            first=1
-            if [ -n "${mac_arm_url:-}" ] && [ -n "${mac_arm_sig:-}" ]; then
-              [ $first -eq 0 ] && echo ','
-              echo "    \"darwin-aarch64\": {\"signature\": \"$mac_arm_sig\", \"url\": \"$mac_arm_url\"}"
-              first=0
-            fi
-            if [ -n "${mac_x64_url:-}" ] && [ -n "${mac_x64_sig:-}" ]; then
-              [ $first -eq 0 ] && echo ','
-              echo "    \"darwin-x86_64\": {\"signature\": \"$mac_x64_sig\", \"url\": \"$mac_x64_url\"}"
-              first=0
-            fi
-            echo '  }'
-            echo '}'
-          } > "$tmp_json"
-
-          cat "$tmp_json"
-          mv "$tmp_json" updater.json
 
       - name: Generate release notes from changelog
         env:
