@@ -3,6 +3,7 @@ import './App.css'
 import { useTranslation } from 'react-i18next'
 import { Toaster, toast } from 'sonner'
 import FilterBar from './components/skills/FilterBar'
+import type { SourceFilterValue } from './components/skills/FilterBar'
 import Header from './components/skills/Header'
 import LoadingOverlay from './components/skills/LoadingOverlay'
 import SkillsList from './components/skills/SkillsList'
@@ -87,6 +88,7 @@ function App() {
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'updated' | 'name'>('updated')
+  const [sourceFilter, setSourceFilter] = useState<SourceFilterValue>('all')
   const [addModalTab, setAddModalTab] = useState<'local' | 'git' | 'search'>('git')
   // ClawHub search
   const [clawHubQuery, setClawHubQuery] = useState('')
@@ -435,6 +437,9 @@ function App() {
   const visibleSkills = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     const filtered = managedSkills.filter((skill) => {
+      // Source filter
+      if (sourceFilter !== 'all' && skill.source_type !== sourceFilter) return false
+      // Text search
       if (!query) return true
       return (
         skill.name.toLowerCase().includes(query) ||
@@ -449,7 +454,7 @@ function App() {
       return (b.updated_at ?? 0) - (a.updated_at ?? 0)
     })
     return sorted
-  }, [managedSkills, searchQuery, sortBy])
+  }, [managedSkills, searchQuery, sortBy, sourceFilter])
 
   const [storagePath, setStoragePath] = useState<string>(t('notAvailable'))
   const [gitCacheCleanupDays, setGitCacheCleanupDays] = useState<number>(30)
@@ -1897,9 +1902,11 @@ function App() {
         <div className="dashboard-stack">
           <FilterBar
             sortBy={sortBy}
+            sourceFilter={sourceFilter}
             searchQuery={searchQuery}
             loading={loading}
             onSortChange={handleSortChange}
+            onSourceFilterChange={setSourceFilter}
             onSearchChange={handleSearchChange}
             onRefresh={handleRefresh}
             t={t}

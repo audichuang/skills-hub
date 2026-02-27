@@ -1,29 +1,57 @@
 import { memo } from 'react'
-import { ArrowUpDown, RefreshCw, Search } from 'lucide-react'
+import { ArrowUpDown, Box, Folder, Github, RefreshCw, Search } from 'lucide-react'
 import type { TFunction } from 'i18next'
+
+export type SourceFilterValue = 'all' | 'local' | 'git' | 'clawhub'
 
 type FilterBarProps = {
   sortBy: 'updated' | 'name'
+  sourceFilter: SourceFilterValue
   searchQuery: string
   loading: boolean
   onSortChange: (value: 'updated' | 'name') => void
+  onSourceFilterChange: (value: SourceFilterValue) => void
   onSearchChange: (value: string) => void
   onRefresh: () => void
   t: TFunction
 }
 
+const sourceOptions: { value: SourceFilterValue; icon?: typeof Github }[] = [
+  { value: 'all' },
+  { value: 'local', icon: Folder },
+  { value: 'git', icon: Github },
+  { value: 'clawhub', icon: Box },
+]
+
 const FilterBar = ({
   sortBy,
+  sourceFilter,
   searchQuery,
   loading,
   onSortChange,
+  onSourceFilterChange,
   onSearchChange,
   onRefresh,
   t,
 }: FilterBarProps) => {
   return (
     <div className="filter-bar">
-      <div className="filter-title">{t('allSkills')}</div>
+      <div className="filter-left">
+        <div className="filter-title">{t('allSkills')}</div>
+        <div className="source-filter-group">
+          {sourceOptions.map(({ value, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              className={`source-filter-pill${sourceFilter === value ? ' active' : ''}`}
+              onClick={() => onSourceFilterChange(value)}
+            >
+              {Icon ? <Icon size={13} /> : null}
+              {t(`sourceFilter.${value}`)}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="filter-actions">
         <button className="btn btn-secondary sort-btn" type="button">
           <span className="sort-label">{t('filterSort')}:</span>
