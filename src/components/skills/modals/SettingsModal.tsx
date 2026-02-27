@@ -237,7 +237,7 @@ const SettingsModal = ({
               {t('remote.remoteHosts')}
             </label>
             <div className="settings-input-row">
-              <span className="settings-input" style={{ flex: 1 }}>
+              <span className="settings-hint" style={{ flex: 1 }}>
                 {t('remote.remoteHostsHint')}
               </span>
               <button

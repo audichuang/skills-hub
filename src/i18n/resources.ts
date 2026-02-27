@@ -656,12 +656,12 @@ export const resources = {
       unknown: '未知',
       languageShort: {
         en: 'EN',
-        'zh-CN': '简中',
+        'zh-CN': '簡中',
         'zh-TW': '繁中',
       },
       languageOptions: {
         en: 'English',
-        'zh-CN': '简体中文',
+        'zh-CN': '簡體中文',
         'zh-TW': '繁體中文',
       },
       subtitle: '統一管理並同步你的技能到各工具',

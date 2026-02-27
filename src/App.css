@@ -18,6 +18,9 @@
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-header);
   backdrop-filter: blur(12px);
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+  position: relative;
+  z-index: 10;
 }
 
 .brand-area {
@@ -220,7 +223,7 @@
 }
 
 .skill-card {
-  background: var(--bg-app);
+  background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: 16px 20px;
@@ -228,15 +231,16 @@
   grid-template-columns: 48px 1fr auto;
   gap: 20px;
   align-items: center;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   position: relative;
+  box-shadow: var(--shadow-sm);
 }
 
 .skill-card:hover {
   border-color: var(--border-strong);
   background: var(--bg-panel);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
   z-index: 1;
 }
 
@@ -529,12 +533,14 @@
 }
 
 .empty {
-  padding: 16px;
+  padding: 32px 24px;
   border-radius: var(--radius-lg);
-  border: 1px dashed var(--border-subtle);
-  color: var(--text-secondary);
-  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  background: var(--bg-panel);
   margin: 0;
+  text-align: center;
+  font-size: 14px;
 }
 
 .btn {
@@ -563,7 +569,12 @@
 .btn-primary:hover {
   background: var(--accent-primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 8px -1px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 6px 12px -2px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px -1px rgba(37, 99, 235, 0.2);
 }
 
 .btn-secondary {
@@ -616,9 +627,9 @@
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
+  background: var(--bg-panel);
 }
 
 .icon-btn:hover {
@@ -671,12 +682,13 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.45);
+  background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   z-index: 999;
+  backdrop-filter: blur(4px);
 }
 
 .loading-backdrop {
@@ -685,7 +697,7 @@
 
 .modal {
   width: min(520px, 100%);
-  background: var(--bg-app);
+  background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -1473,6 +1485,15 @@
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.settings-hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 4px;
 }
 
 .settings-input {
