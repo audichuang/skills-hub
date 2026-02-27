@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { MessageCircle } from 'lucide-react'
 import type { TFunction } from 'i18next'
-import type { ManagedSkill, OnboardingPlan, ToolOption } from './types'
+import type { ManagedSkill, OnboardingPlan, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, SkillUpdateStatus, ToolOption } from './types'
 import SkillCard from './SkillCard'
 
 type GithubInfo = {
@@ -14,6 +14,7 @@ type SkillsListProps = {
   visibleSkills: ManagedSkill[]
   installedTools: ToolOption[]
   loading: boolean
+  updateStatuses: Record<string, SkillUpdateStatus>
   getGithubInfo: (url: string | null | undefined) => GithubInfo | null
   getSkillSourceLabel: (skill: ManagedSkill) => string
   formatRelative: (ms: number | null | undefined) => string
@@ -22,6 +23,11 @@ type SkillsListProps = {
   onDeleteSkill: (skillId: string) => void
   onToggleTool: (skill: ManagedSkill, toolId: string) => void
   onViewDetail: (skill: ManagedSkill) => void
+  remoteHosts: RemoteHost[]
+  remoteSkillStatuses: Record<string, RemoteSkillsDto>
+  remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
+  onSyncToRemote: (skill: ManagedSkill, hostId: string) => void
+  remoteSyncing: string | null
   t: TFunction
 }
 
@@ -30,6 +36,7 @@ const SkillsList = ({
   visibleSkills,
   installedTools,
   loading,
+  updateStatuses,
   getGithubInfo,
   getSkillSourceLabel,
   formatRelative,
@@ -38,6 +45,11 @@ const SkillsList = ({
   onDeleteSkill,
   onToggleTool,
   onViewDetail,
+  remoteHosts,
+  remoteSkillStatuses,
+  remoteToolStatuses,
+  onSyncToRemote,
+  remoteSyncing,
   t,
 }: SkillsListProps) => {
   return (
@@ -76,6 +88,7 @@ const SkillsList = ({
               skill={skill}
               installedTools={installedTools}
               loading={loading}
+              hasUpdate={updateStatuses[skill.id]?.has_update === true}
               getGithubInfo={getGithubInfo}
               getSkillSourceLabel={getSkillSourceLabel}
               formatRelative={formatRelative}
@@ -83,6 +96,11 @@ const SkillsList = ({
               onDelete={onDeleteSkill}
               onToggleTool={onToggleTool}
               onViewDetail={onViewDetail}
+              remoteHosts={remoteHosts}
+              remoteSkillStatuses={remoteSkillStatuses}
+              remoteToolStatuses={remoteToolStatuses}
+              onSyncToRemote={onSyncToRemote}
+              remoteSyncing={remoteSyncing}
               t={t}
             />
           ))}

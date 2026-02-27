@@ -81,6 +81,7 @@ pub fn run() {
             commands::sync_skill_to_tool,
             commands::unsync_skill_from_tool,
             commands::update_managed_skill,
+            commands::check_skill_updates,
             commands::search_github,
             commands::import_existing_skill,
             commands::get_managed_skills,
@@ -88,7 +89,17 @@ pub fn run() {
             commands::search_clawhub,
             commands::get_clawhub_skill_cmd,
             commands::get_github_tree_cmd,
-            commands::install_clawhub_skill
+            commands::install_clawhub_skill,
+            commands::list_remote_hosts,
+            commands::add_remote_host,
+            commands::update_remote_host,
+            commands::delete_remote_host,
+            commands::test_remote_connection,
+            commands::get_remote_tool_status,
+            commands::sync_all_skills_to_remote,
+            commands::sync_remote_skill_to_tool,
+            commands::list_remote_skills,
+            commands::sync_selected_skills_to_remote
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

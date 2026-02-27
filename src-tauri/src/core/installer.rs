@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::cache_cleanup::get_git_cache_ttl_secs;
 use super::central_repo::{ensure_central_repo, resolve_central_repo_path};
 use super::content_hash::hash_dir;
-use super::git_fetcher::clone_or_pull;
+use super::git_fetcher::{clone_or_pull, ls_remote_head};
 use super::skill_store::{SkillRecord, SkillStore};
 use super::sync_engine::copy_dir_recursive;
 use super::sync_engine::sync_dir_copy_with_overwrite;
@@ -328,6 +328,88 @@ fn should_compute_content_hash() -> bool {
         .ok()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+// ── Check for remote updates (lightweight, no download) ────────────────────
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SkillUpdateStatus {
+    pub skill_id: String,
+    pub name: String,
+    pub has_update: bool,
+    pub current_rev: Option<String>,
+    pub remote_rev: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Check all git-sourced skills for available updates via `git ls-remote`.
+/// Network failures for individual skills are captured in `error` rather than
+/// aborting the entire check.
+pub fn check_skill_updates(store: &SkillStore) -> Vec<SkillUpdateStatus> {
+    let skills = match store.list_skills() {
+        Ok(s) => s,
+        Err(err) => {
+            log::error!(
+                "[installer] check_skill_updates: failed to list skills: {:#}",
+                err
+            );
+            return Vec::new();
+        }
+    };
+
+    skills
+        .into_iter()
+        .filter(|s| s.source_type == "git")
+        .map(|skill| {
+            let repo_url = match skill.source_ref.as_deref() {
+                Some(url) => url,
+                None => {
+                    return SkillUpdateStatus {
+                        skill_id: skill.id,
+                        name: skill.name,
+                        has_update: false,
+                        current_rev: skill.source_revision,
+                        remote_rev: None,
+                        error: Some("missing source_ref".to_string()),
+                    };
+                }
+            };
+
+            let parsed = parse_github_url(repo_url);
+            match ls_remote_head(&parsed.clone_url, parsed.branch.as_deref()) {
+                Ok(remote_rev) => {
+                    let has_update = skill
+                        .source_revision
+                        .as_deref()
+                        .map(|cur| cur != remote_rev)
+                        .unwrap_or(true);
+                    SkillUpdateStatus {
+                        skill_id: skill.id,
+                        name: skill.name,
+                        has_update,
+                        current_rev: skill.source_revision,
+                        remote_rev: Some(remote_rev),
+                        error: None,
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "[installer] check_skill_updates: ls-remote failed for {}: {:#}",
+                        skill.name,
+                        err
+                    );
+                    SkillUpdateStatus {
+                        skill_id: skill.id,
+                        name: skill.name,
+                        has_update: false,
+                        current_rev: skill.source_revision,
+                        remote_rev: None,
+                        error: Some(format!("{:#}", err)),
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 pub struct UpdateResult {

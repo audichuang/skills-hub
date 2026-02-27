@@ -15,6 +15,7 @@ type SettingsModalProps = {
   onGitCacheCleanupDaysChange: (nextDays: number) => void
   onGitCacheTtlSecsChange: (nextSecs: number) => void
   onClearGitCacheNow: () => void
+  onOpenRemoteHosts: () => void
   onRequestClose: () => void
   t: TFunction
 }
@@ -33,6 +34,7 @@ const SettingsModal = ({
   onGitCacheCleanupDaysChange,
   onGitCacheTtlSecsChange,
   onClearGitCacheNow,
+  onOpenRemoteHosts,
   onRequestClose,
   t,
 }: SettingsModalProps) => {
@@ -231,6 +233,24 @@ const SettingsModal = ({
               />
             </div>
             <div className="settings-helper">{t('gitCacheTtlHint')}</div>
+          </div>
+
+          <div className="settings-field">
+            <label className="settings-label">
+              {t('remote.remoteHosts')}
+            </label>
+            <div className="settings-input-row">
+              <span className="settings-input" style={{ flex: 1 }}>
+                {t('remote.remoteHostsHint')}
+              </span>
+              <button
+                className="btn btn-secondary settings-browse"
+                type="button"
+                onClick={onOpenRemoteHosts}
+              >
+                {t('remote.remoteHostsManage')}
+              </button>
+            </div>
           </div>
 
           <div className="settings-version">

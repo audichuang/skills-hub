@@ -12,12 +12,14 @@ use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
 use crate::core::clawhub_api;
 use crate::core::github_search::{search_github_repos, RepoSummary};
 use crate::core::installer::{
-    install_git_skill, install_git_skill_from_selection, install_local_skill,
-    install_local_skill_from_selection, list_git_skills, list_local_skills,
-    update_managed_skill_from_source, GitSkillCandidate, InstallResult, LocalSkillCandidate,
+    check_skill_updates as check_skill_updates_core, install_git_skill,
+    install_git_skill_from_selection, install_local_skill, install_local_skill_from_selection,
+    list_git_skills, list_local_skills, update_managed_skill_from_source, GitSkillCandidate,
+    InstallResult, LocalSkillCandidate, SkillUpdateStatus,
 };
 use crate::core::onboarding::{build_onboarding_plan, OnboardingPlan};
-use crate::core::skill_store::{SkillStore, SkillTargetRecord};
+use crate::core::remote_sync;
+use crate::core::skill_store::{RemoteHostRecord, SkillStore, SkillTargetRecord};
 use crate::core::sync_engine::{
     copy_dir_recursive, sync_dir_for_tool_with_overwrite, sync_dir_hybrid, SyncMode,
 };
@@ -614,6 +616,16 @@ pub async fn update_managed_skill(
 }
 
 #[tauri::command]
+pub async fn check_skill_updates(
+    store: State<'_, SkillStore>,
+) -> Result<Vec<SkillUpdateStatus>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || Ok::<_, String>(check_skill_updates_core(&store)))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub async fn search_github(query: String, limit: Option<u32>) -> Result<Vec<RepoSummary>, String> {
     let limit = limit.unwrap_or(10) as usize;
     tauri::async_runtime::spawn_blocking(move || search_github_repos(&query, limit))
@@ -856,6 +868,432 @@ pub async fn install_clawhub_skill(
     .await
     .map_err(|err| err.to_string())?
     .map_err(format_anyhow_error)
+}
+
+// ── Remote Host commands ───────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct RemoteHostDto {
+    pub id: String,
+    pub label: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_method: String,
+    pub key_path: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub status: String,
+}
+
+fn record_to_dto(r: RemoteHostRecord) -> RemoteHostDto {
+    RemoteHostDto {
+        id: r.id,
+        label: r.label,
+        host: r.host,
+        port: r.port,
+        username: r.username,
+        auth_method: r.auth_method,
+        key_path: r.key_path,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        last_sync_at: r.last_sync_at,
+        status: r.status,
+    }
+}
+
+#[tauri::command]
+pub async fn list_remote_hosts(store: State<'_, SkillStore>) -> Result<Vec<RemoteHostDto>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let hosts = store.list_remote_hosts().map_err(format_anyhow_error)?;
+        Ok(hosts.into_iter().map(record_to_dto).collect())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn add_remote_host(
+    store: State<'_, SkillStore>,
+    label: String,
+    host: String,
+    port: Option<i64>,
+    username: String,
+    authMethod: Option<String>,
+    keyPath: Option<String>,
+) -> Result<RemoteHostDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let port = port.unwrap_or(22);
+        if !(1..=65535).contains(&port) {
+            anyhow::bail!("port must be between 1 and 65535, got {}", port);
+        }
+        let now = now_ms();
+        let record = RemoteHostRecord {
+            id: Uuid::new_v4().to_string(),
+            label,
+            host,
+            port,
+            username,
+            auth_method: authMethod.unwrap_or_else(|| "key".to_string()),
+            key_path: keyPath,
+            created_at: now,
+            updated_at: now,
+            last_sync_at: None,
+            status: "idle".to_string(),
+        };
+        store.upsert_remote_host(&record)?;
+        Ok::<_, anyhow::Error>(record_to_dto(record))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case, clippy::too_many_arguments)]
+pub async fn update_remote_host(
+    store: State<'_, SkillStore>,
+    id: String,
+    label: String,
+    host: String,
+    port: Option<i64>,
+    username: String,
+    authMethod: Option<String>,
+    keyPath: Option<String>,
+) -> Result<RemoteHostDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let port = port.unwrap_or(22);
+        if !(1..=65535).contains(&port) {
+            anyhow::bail!("port must be between 1 and 65535, got {}", port);
+        }
+        let existing = store
+            .get_remote_host_by_id(&id)?
+            .ok_or_else(|| anyhow::anyhow!("remote host not found: {}", id))?;
+
+        let record = RemoteHostRecord {
+            id: existing.id,
+            label,
+            host,
+            port,
+            username,
+            auth_method: authMethod.unwrap_or_else(|| "key".to_string()),
+            key_path: keyPath,
+            created_at: existing.created_at,
+            updated_at: now_ms(),
+            last_sync_at: existing.last_sync_at,
+            status: existing.status,
+        };
+        store.upsert_remote_host(&record)?;
+        Ok::<_, anyhow::Error>(record_to_dto(record))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn delete_remote_host(
+    store: State<'_, SkillStore>,
+    hostId: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .delete_remote_host(&hostId)
+            .map_err(format_anyhow_error)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn test_remote_connection(
+    host: String,
+    port: Option<u16>,
+    username: String,
+    authMethod: Option<String>,
+    keyPath: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        remote_sync::test_connection(
+            &host,
+            port.unwrap_or(22),
+            &username,
+            &authMethod.unwrap_or_else(|| "key".to_string()),
+            keyPath.as_deref(),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemoteToolInfoDto {
+    pub key: String,
+    pub label: String,
+    pub installed: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteToolStatusDto {
+    pub hostId: String,
+    pub tools: Vec<RemoteToolInfoDto>,
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn get_remote_tool_status(
+    store: State<'_, SkillStore>,
+    hostId: String,
+) -> Result<RemoteToolStatusDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(format_anyhow_error)?;
+
+        let tools = remote_sync::detect_remote_tools(&sess).map_err(format_anyhow_error)?;
+
+        Ok(RemoteToolStatusDto {
+            hostId,
+            tools: tools
+                .into_iter()
+                .map(|(key, label, installed)| RemoteToolInfoDto {
+                    key,
+                    label,
+                    installed,
+                })
+                .collect(),
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteSyncResultDto {
+    pub syncedSkills: Vec<String>,
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn sync_all_skills_to_remote(
+    store: State<'_, SkillStore>,
+    hostId: String,
+    toolKeys: Vec<String>,
+) -> Result<RemoteSyncResultDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        store
+            .update_remote_host_sync_status(&hostId, "syncing", None)
+            .ok();
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(|e| {
+            store
+                .update_remote_host_sync_status(&hostId, "error", None)
+                .ok();
+            format_anyhow_error(e)
+        })?;
+
+        let skills = store.list_skills().map_err(format_anyhow_error)?;
+        let skill_pairs: Vec<(String, std::path::PathBuf)> = skills
+            .into_iter()
+            .map(|s| (s.name, std::path::PathBuf::from(s.central_path)))
+            .collect();
+
+        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_pairs, &toolKeys)
+            .map_err(|e| {
+                store
+                    .update_remote_host_sync_status(&hostId, "error", None)
+                    .ok();
+                format_anyhow_error(e)
+            })?;
+
+        store
+            .update_remote_host_sync_status(&hostId, "ok", Some(now_ms()))
+            .ok();
+
+        Ok(RemoteSyncResultDto {
+            syncedSkills: synced,
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn sync_remote_skill_to_tool(
+    store: State<'_, SkillStore>,
+    hostId: String,
+    skillId: String,
+    toolKey: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        let skill = store
+            .get_skill_by_id(&skillId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("skill not found: {}", skillId))?;
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(format_anyhow_error)?;
+
+        let local_path = std::path::PathBuf::from(&skill.central_path);
+        remote_sync::sync_skill_to_remote_tool(&sess, &skill.name, &local_path, &toolKey)
+            .map_err(format_anyhow_error)?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteSkillsDto {
+    pub hostId: String,
+    pub skills: Vec<String>,
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn list_remote_skills(
+    store: State<'_, SkillStore>,
+    hostId: String,
+) -> Result<RemoteSkillsDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(format_anyhow_error)?;
+
+        let skills = remote_sync::list_remote_skills(&sess).map_err(format_anyhow_error)?;
+
+        // SSH succeeded → reset status if it was previously "error"
+        store
+            .update_remote_host_sync_status(&hostId, "ok", None)
+            .ok();
+
+        Ok(RemoteSkillsDto { hostId, skills })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn sync_selected_skills_to_remote(
+    store: State<'_, SkillStore>,
+    hostId: String,
+    skillIds: Vec<String>,
+    toolKeys: Vec<String>,
+) -> Result<RemoteSyncResultDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        store
+            .update_remote_host_sync_status(&hostId, "syncing", None)
+            .ok();
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(|e| {
+            store
+                .update_remote_host_sync_status(&hostId, "error", None)
+                .ok();
+            format_anyhow_error(e)
+        })?;
+
+        let all_skills = store.list_skills().map_err(format_anyhow_error)?;
+        let skill_ids_set: std::collections::HashSet<&str> =
+            skillIds.iter().map(|s| s.as_str()).collect();
+        let skill_pairs: Vec<(String, std::path::PathBuf)> = all_skills
+            .into_iter()
+            .filter(|s| skill_ids_set.contains(s.id.as_str()))
+            .map(|s| (s.name, std::path::PathBuf::from(s.central_path)))
+            .collect();
+
+        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_pairs, &toolKeys)
+            .map_err(|e| {
+                store
+                    .update_remote_host_sync_status(&hostId, "error", None)
+                    .ok();
+                format_anyhow_error(e)
+            })?;
+
+        store
+            .update_remote_host_sync_status(&hostId, "ok", Some(now_ms()))
+            .ok();
+
+        Ok(RemoteSyncResultDto {
+            syncedSkills: synced,
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[cfg(test)]

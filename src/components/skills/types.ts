@@ -93,3 +93,46 @@ export type ClawHubSkill = {
   score: number
   updatedAt?: number | null
 }
+
+export type SkillUpdateStatus = {
+  skill_id: string
+  name: string
+  has_update: boolean
+  current_rev?: string | null
+  remote_rev?: string | null
+  error?: string | null
+}
+
+export type RemoteHost = {
+  id: string
+  label: string
+  host: string
+  port: number
+  username: string
+  auth_method: string
+  key_path?: string | null
+  created_at: number
+  updated_at: number
+  last_sync_at?: number | null
+  status: string
+}
+
+export type RemoteToolInfoDto = {
+  key: string
+  label: string
+  installed: boolean
+}
+
+export type RemoteToolStatusDto = {
+  hostId: string
+  tools: RemoteToolInfoDto[]
+}
+
+export type RemoteSyncResultDto = {
+  syncedSkills: string[]
+}
+
+export type RemoteSkillsDto = {
+  hostId: string
+  skills: string[]
+}

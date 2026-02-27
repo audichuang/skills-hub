@@ -8,7 +8,7 @@ const DB_FILE_NAME: &str = "skills_hub.db";
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.tauri.dev", "com.tauri.dev.skillshub"];
 
 // Schema versioning: bump when making changes and add a migration step.
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 // Minimal schema for MVP: skills, skill_targets, settings, discovered_skills(optional).
 const SCHEMA_V1: &str = r#"
@@ -60,6 +60,22 @@ CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
 CREATE INDEX IF NOT EXISTS idx_skills_updated_at ON skills(updated_at);
 "#;
 
+const SCHEMA_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS remote_hosts (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 22,
+    username TEXT NOT NULL,
+    auth_method TEXT NOT NULL DEFAULT 'key',
+    key_path TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_sync_at INTEGER,
+    status TEXT NOT NULL DEFAULT 'idle'
+);
+"#;
+
 #[derive(Clone, Debug)]
 pub struct SkillStore {
     db_path: PathBuf,
@@ -93,6 +109,21 @@ pub struct SkillTargetRecord {
     pub synced_at: Option<i64>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RemoteHostRecord {
+    pub id: String,
+    pub label: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_method: String,
+    pub key_path: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub last_sync_at: Option<i64>,
+    pub status: String,
+}
+
 impl SkillStore {
     pub fn new(db_path: PathBuf) -> Self {
         Self { db_path }
@@ -110,6 +141,11 @@ impl SkillStore {
             let user_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
             if user_version == 0 {
                 conn.execute_batch(SCHEMA_V1)?;
+                conn.execute_batch(SCHEMA_V2)?;
+                conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            } else if user_version == 1 {
+                // Migrate V1 -> V2: add remote_hosts table
+                conn.execute_batch(SCHEMA_V2)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version > SCHEMA_VERSION {
                 anyhow::bail!(
@@ -374,6 +410,132 @@ impl SkillStore {
                 "DELETE FROM skill_targets WHERE skill_id = ?1 AND tool = ?2",
                 params![skill_id, tool],
             )?;
+            Ok(())
+        })
+    }
+
+    // ── Remote Host CRUD ────────────────────────────────────────────────
+
+    pub fn upsert_remote_host(&self, record: &RemoteHostRecord) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO remote_hosts (
+                    id, label, host, port, username, auth_method, key_path,
+                    created_at, updated_at, last_sync_at, status
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ON CONFLICT(id) DO UPDATE SET
+                    label = excluded.label,
+                    host = excluded.host,
+                    port = excluded.port,
+                    username = excluded.username,
+                    auth_method = excluded.auth_method,
+                    key_path = excluded.key_path,
+                    updated_at = excluded.updated_at,
+                    status = excluded.status",
+                params![
+                    record.id,
+                    record.label,
+                    record.host,
+                    record.port,
+                    record.username,
+                    record.auth_method,
+                    record.key_path,
+                    record.created_at,
+                    record.updated_at,
+                    record.last_sync_at,
+                    record.status,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_remote_hosts(&self) -> Result<Vec<RemoteHostRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, label, host, port, username, auth_method, key_path,
+                        created_at, updated_at, last_sync_at, status
+                 FROM remote_hosts
+                 ORDER BY label ASC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(RemoteHostRecord {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    auth_method: row.get(5)?,
+                    key_path: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    last_sync_at: row.get(9)?,
+                    status: row.get(10)?,
+                })
+            })?;
+            let mut items = Vec::new();
+            for row in rows {
+                items.push(row?);
+            }
+            Ok(items)
+        })
+    }
+
+    pub fn get_remote_host_by_id(&self, host_id: &str) -> Result<Option<RemoteHostRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, label, host, port, username, auth_method, key_path,
+                        created_at, updated_at, last_sync_at, status
+                 FROM remote_hosts
+                 WHERE id = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query(params![host_id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(RemoteHostRecord {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    auth_method: row.get(5)?,
+                    key_path: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    last_sync_at: row.get(9)?,
+                    status: row.get(10)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn delete_remote_host(&self, host_id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM remote_hosts WHERE id = ?1", params![host_id])?;
+            Ok(())
+        })
+    }
+
+    pub fn update_remote_host_sync_status(
+        &self,
+        host_id: &str,
+        status: &str,
+        last_sync_at: Option<i64>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            if let Some(ts) = last_sync_at {
+                conn.execute(
+                    "UPDATE remote_hosts SET status = ?1, last_sync_at = ?2 WHERE id = ?3",
+                    params![status, ts, host_id],
+                )?;
+            } else {
+                conn.execute(
+                    "UPDATE remote_hosts SET status = ?1 WHERE id = ?2",
+                    params![status, host_id],
+                )?;
+            }
             Ok(())
         })
     }

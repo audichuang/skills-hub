@@ -13,6 +13,7 @@ import GitPickModal from './components/skills/modals/GitPickModal'
 import LocalPickModal from './components/skills/modals/LocalPickModal'
 import ImportModal from './components/skills/modals/ImportModal'
 import NewToolsModal from './components/skills/modals/NewToolsModal'
+import RemoteHostsModal from './components/skills/modals/RemoteHostsModal'
 import SharedDirModal from './components/skills/modals/SharedDirModal'
 import SettingsModal from './components/skills/modals/SettingsModal'
 import SkillDetailModal from './components/skills/modals/SkillDetailModal'
@@ -23,9 +24,14 @@ import type {
   LocalSkillCandidate,
   ManagedSkill,
   OnboardingPlan,
+  SkillUpdateStatus,
   ToolOption,
   ToolStatusDto,
   UpdateResultDto,
+  RemoteHost,
+  RemoteToolInfoDto,
+  RemoteSyncResultDto,
+  RemoteSkillsDto,
 } from './components/skills/types'
 
 function App() {
@@ -51,6 +57,7 @@ function App() {
     null,
   )
   const [managedSkills, setManagedSkills] = useState<ManagedSkill[]>([])
+  const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateStatus>>({})
   const [localPath, setLocalPath] = useState('')
   const [localName, setLocalName] = useState('')
   const [gitUrl, setGitUrl] = useState('')
@@ -88,6 +95,11 @@ function App() {
   const [clawHubInstallingSlug, setClawHubInstallingSlug] = useState<string | null>(null)
   const [selectedSkill, setSelectedSkill] = useState<ManagedSkill | null>(null)
   const [viewDetailSlug, setViewDetailSlug] = useState<string | null>(null)
+  const [showRemoteHostsModal, setShowRemoteHostsModal] = useState(false)
+  const [remoteHosts, setRemoteHosts] = useState<RemoteHost[]>([])
+  const [remoteSkillStatuses, setRemoteSkillStatuses] = useState<Record<string, RemoteSkillsDto>>({})
+  const [remoteToolStatuses, setRemoteToolStatuses] = useState<Record<string, RemoteToolInfoDto[]>>({})
+  const [remoteSyncing, setRemoteSyncing] = useState<string | null>(null)
 
   const isTauri =
     typeof window !== 'undefined' &&
@@ -233,11 +245,31 @@ function App() {
     }
   }, [invokeTauri])
 
+  const checkForSkillUpdates = useCallback(async () => {
+    try {
+      const statuses = await invokeTauri<SkillUpdateStatus[]>('check_skill_updates')
+      const map: Record<string, SkillUpdateStatus> = {}
+      for (const s of statuses) {
+        map[s.skill_id] = s
+      }
+      setUpdateStatuses(map)
+    } catch {
+      // Silent failure – update check is best-effort
+    }
+  }, [invokeTauri])
+
   useEffect(() => {
     if (isTauri) {
       loadManagedSkills()
     }
   }, [isTauri, loadManagedSkills])
+
+  // Check for skill updates after managed skills are loaded
+  useEffect(() => {
+    if (isTauri && managedSkills.length > 0) {
+      void checkForSkillUpdates()
+    }
+  }, [isTauri, managedSkills.length, checkForSkillUpdates])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -535,6 +567,220 @@ function App() {
     if (!loading) setShowSettingsModal(false)
   }, [loading])
 
+  const loadRemoteHosts = useCallback(async () => {
+    if (!isTauri) return
+    try {
+      const hosts = await invokeTauri<RemoteHost[]>('list_remote_hosts')
+      setRemoteHosts(hosts)
+      return hosts
+    } catch (err) {
+      console.warn('Failed to load remote hosts:', err)
+      return []
+    }
+  }, [isTauri, invokeTauri])
+
+  const loadRemoteSkillStatuses = useCallback(async (hosts: RemoteHost[]) => {
+    if (!isTauri || hosts.length === 0) return
+    for (const host of hosts) {
+      try {
+        const result = await invokeTauri<RemoteSkillsDto>('list_remote_skills', { hostId: host.id })
+        setRemoteSkillStatuses((prev) => ({ ...prev, [host.id]: result }))
+      } catch (err) {
+        console.warn(`Failed to list remote skills for ${host.label}:`, err)
+      }
+      try {
+        const toolResult = await invokeTauri<{ hostId: string; tools: RemoteToolInfoDto[] }>(
+          'get_remote_tool_status',
+          { hostId: host.id },
+        )
+        setRemoteToolStatuses((prev) => ({ ...prev, [host.id]: toolResult.tools }))
+      } catch (err) {
+        console.warn(`Failed to detect remote tools for ${host.label}:`, err)
+      }
+    }
+  }, [isTauri, invokeTauri])
+
+  // Auto-load remote hosts on startup
+  useEffect(() => {
+    if (isTauri) {
+      void loadRemoteHosts().then((hosts) => {
+        if (hosts && hosts.length > 0) {
+          void loadRemoteSkillStatuses(hosts).then(() => {
+            // Re-load hosts to pick up status changes (e.g. error → ok)
+            void loadRemoteHosts()
+          })
+        }
+      })
+    }
+  }, [isTauri, loadRemoteHosts, loadRemoteSkillStatuses])
+
+  const handleOpenRemoteHosts = useCallback(() => {
+    setShowSettingsModal(false)
+    void loadRemoteHosts()
+    setShowRemoteHostsModal(true)
+  }, [loadRemoteHosts])
+
+  const handleCloseRemoteHosts = useCallback(() => {
+    setShowRemoteHostsModal(false)
+  }, [])
+
+  const handleAddRemoteHost = useCallback(
+    async (data: {
+      label: string
+      host: string
+      port: number
+      username: string
+      authMethod: string
+      keyPath?: string
+    }) => {
+      await invokeTauri<RemoteHost>('add_remote_host', data)
+      await loadRemoteHosts()
+    },
+    [invokeTauri, loadRemoteHosts],
+  )
+
+  const handleUpdateRemoteHost = useCallback(
+    async (data: {
+      id: string
+      label: string
+      host: string
+      port: number
+      username: string
+      authMethod: string
+      keyPath?: string
+    }) => {
+      await invokeTauri<RemoteHost>('update_remote_host', data)
+      await loadRemoteHosts()
+    },
+    [invokeTauri, loadRemoteHosts],
+  )
+
+  const handleDeleteRemoteHost = useCallback(
+    async (hostId: string) => {
+      await invokeTauri('delete_remote_host', { hostId })
+      await loadRemoteHosts()
+    },
+    [invokeTauri, loadRemoteHosts],
+  )
+
+  const handleTestRemoteConnection = useCallback(
+    async (data: {
+      host: string
+      port: number
+      username: string
+      authMethod: string
+      keyPath?: string
+    }) => {
+      const result = await invokeTauri<string>('test_remote_connection', {
+        host: data.host,
+        port: data.port,
+        username: data.username,
+        authMethod: data.authMethod,
+        keyPath: data.keyPath ?? null,
+      })
+      return result
+    },
+    [invokeTauri],
+  )
+
+  const handleSyncAllToRemote = useCallback(
+    async (hostId: string, toolKeys: string[]) => {
+      try {
+        await invokeTauri<RemoteSyncResultDto>('sync_all_skills_to_remote', {
+          hostId,
+          toolKeys,
+        })
+        setSuccessToastMessage(t('remote.remoteSyncCompleted'))
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        toast.error(raw)
+      }
+      await loadRemoteHosts()
+      try {
+        const result = await invokeTauri<RemoteSkillsDto>('list_remote_skills', { hostId })
+        setRemoteSkillStatuses((prev) => ({ ...prev, [hostId]: result }))
+      } catch (err) {
+        console.warn('Failed to refresh remote skills after sync:', err)
+      }
+    },
+    [invokeTauri, loadRemoteHosts, t],
+  )
+
+  const handleSyncSelectedToRemote = useCallback(
+    async (hostId: string, skillIds: string[], toolKeys: string[]) => {
+      try {
+        await invokeTauri<RemoteSyncResultDto>('sync_selected_skills_to_remote', {
+          hostId,
+          skillIds,
+          toolKeys,
+        })
+        setSuccessToastMessage(t('remote.remoteSyncCompleted'))
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        toast.error(raw)
+      }
+      await loadRemoteHosts()
+      try {
+        const result = await invokeTauri<RemoteSkillsDto>('list_remote_skills', { hostId })
+        setRemoteSkillStatuses((prev) => ({ ...prev, [hostId]: result }))
+      } catch (err) {
+        console.warn('Failed to refresh remote skills after sync:', err)
+      }
+    },
+    [invokeTauri, loadRemoteHosts, t],
+  )
+
+  const handleDetectRemoteTools = useCallback(
+    async (hostId: string): Promise<RemoteToolInfoDto[]> => {
+      const result = await invokeTauri<{ hostId: string; tools: RemoteToolInfoDto[] }>(
+        'get_remote_tool_status',
+        { hostId },
+      )
+      return result.tools
+    },
+    [invokeTauri],
+  )
+
+  const handleSyncSkillToRemote = useCallback(
+    async (skill: ManagedSkill, hostId: string) => {
+      setRemoteSyncing(skill.id)
+      try {
+        // Detect tools on the remote host first
+        const toolResult = await invokeTauri<{ hostId: string; tools: RemoteToolInfoDto[] }>(
+          'get_remote_tool_status',
+          { hostId },
+        )
+        const installedKeys = toolResult.tools.filter((t) => t.installed).map((t) => t.key)
+        if (installedKeys.length === 0) {
+          toast.error(t('remote.noToolsDetected'))
+          return
+        }
+        // Sync this single skill
+        await invokeTauri<RemoteSyncResultDto>('sync_selected_skills_to_remote', {
+          hostId,
+          skillIds: [skill.id],
+          toolKeys: installedKeys,
+        })
+        const host = remoteHosts.find((h) => h.id === hostId)
+        setSuccessToastMessage(t('remote.skillSynced', { name: skill.name, host: host?.label ?? hostId }))
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        toast.error(raw)
+      } finally {
+        setRemoteSyncing(null)
+      }
+      // Always refresh after sync attempt
+      await loadRemoteHosts()
+      try {
+        const result = await invokeTauri<RemoteSkillsDto>('list_remote_skills', { hostId })
+        setRemoteSkillStatuses((prev) => ({ ...prev, [hostId]: result }))
+      } catch (err) {
+        console.warn('Failed to refresh remote skills after sync:', err)
+      }
+    },
+    [invokeTauri, remoteHosts, loadRemoteHosts, t],
+  )
+
   const handleThemeChange = useCallback(
     (nextTheme: 'system' | 'light' | 'dark') => {
       setThemePreference(nextTheme)
@@ -662,7 +908,8 @@ function App() {
 
   const handleRefresh = useCallback(() => {
     void loadManagedSkills()
-  }, [loadManagedSkills])
+    void checkForSkillUpdates()
+  }, [loadManagedSkills, checkForSkillUpdates])
 
 
   const handleReviewImport = useCallback(async () => {
@@ -1571,6 +1818,12 @@ function App() {
       try {
         setActionMessage(t('actions.updating', { name: skill.name }))
         await invokeTauri<UpdateResultDto>('update_managed_skill', { skillId: skill.id })
+        // Clear update badge for this skill immediately
+        setUpdateStatuses((prev) => {
+          const next = { ...prev }
+          delete next[skill.id]
+          return next
+        })
         const updatedText = t('status.updated', { name: skill.name })
         setActionMessage(updatedText)
         setSuccessToastMessage(updatedText)
@@ -1656,6 +1909,7 @@ function App() {
             visibleSkills={visibleSkills}
             installedTools={installedTools}
             loading={loading}
+            updateStatuses={updateStatuses}
             getGithubInfo={getGithubInfo}
             getSkillSourceLabel={getSkillSourceLabel}
             formatRelative={formatRelative}
@@ -1664,6 +1918,11 @@ function App() {
             onDeleteSkill={handleDeletePrompt}
             onToggleTool={handleToggleToolForSkill}
             onViewDetail={setSelectedSkill}
+            remoteHosts={remoteHosts}
+            remoteSkillStatuses={remoteSkillStatuses}
+            remoteToolStatuses={remoteToolStatuses}
+            onSyncToRemote={handleSyncSkillToRemote}
+            remoteSyncing={remoteSyncing}
             t={t}
           />
         </div>
@@ -1741,7 +2000,24 @@ function App() {
         onGitCacheCleanupDaysChange={handleGitCacheCleanupDaysChange}
         onGitCacheTtlSecsChange={handleGitCacheTtlSecsChange}
         onClearGitCacheNow={handleClearGitCacheNow}
+        onOpenRemoteHosts={handleOpenRemoteHosts}
         onRequestClose={handleCloseSettings}
+        t={t}
+      />
+
+      <RemoteHostsModal
+        open={showRemoteHostsModal}
+        isTauri={isTauri}
+        remoteHosts={remoteHosts}
+        managedSkills={managedSkills}
+        onAdd={handleAddRemoteHost}
+        onUpdate={handleUpdateRemoteHost}
+        onDelete={handleDeleteRemoteHost}
+        onTestConnection={handleTestRemoteConnection}
+        onSyncAll={handleSyncAllToRemote}
+        onSyncSelected={handleSyncSelectedToRemote}
+        onDetectTools={handleDetectRemoteTools}
+        onRequestClose={handleCloseRemoteHosts}
         t={t}
       />
 

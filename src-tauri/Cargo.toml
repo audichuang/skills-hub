@@ -39,6 +39,7 @@ uuid = { version = "1", features = ["v4"] }
 urlencoding = "2.1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 [dev-dependencies]
 mockito = "1"

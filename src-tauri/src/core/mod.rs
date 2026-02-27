@@ -6,6 +6,7 @@ pub mod git_fetcher;
 pub mod github_search;
 pub mod installer;
 pub mod onboarding;
+pub mod remote_sync;
 pub mod skill_store;
 pub mod sync_engine;
 pub mod temp_cleanup;

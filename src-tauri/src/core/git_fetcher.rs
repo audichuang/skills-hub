@@ -317,6 +317,52 @@ fn clone_or_pull_via_git_cli(repo_url: &str, dest: &Path, branch: Option<&str>) 
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Query the remote HEAD commit hash using `git ls-remote` without downloading objects.
+pub fn ls_remote_head(repo_url: &str, branch: Option<&str>) -> Result<String> {
+    let ref_spec = match branch {
+        Some(b) => format!("refs/heads/{}", b),
+        None => "HEAD".to_string(),
+    };
+
+    if resolve_git_bin().is_some() {
+        let mut cmd = git_cmd();
+        cmd.arg("ls-remote").arg(repo_url).arg(&ref_spec);
+        let out = run_cmd_with_timeout(
+            cmd,
+            git_fetch_timeout(),
+            format!("git ls-remote {} {}", repo_url, ref_spec),
+        )?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "git ls-remote failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let hash = stdout
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("git ls-remote returned empty output"))?;
+        return Ok(hash.to_string());
+    }
+
+    // Fallback: use libgit2 remote_ls (no checkout needed).
+    let remote = git2::Remote::create_detached(repo_url)
+        .with_context(|| format!("create detached remote for {}", repo_url))?;
+    // Need mutable for connect().
+    let mut remote = remote;
+    remote
+        .connect(git2::Direction::Fetch)
+        .with_context(|| format!("connect to {}", repo_url))?;
+    let heads = remote.list()?;
+    for head in heads {
+        if head.name() == ref_spec {
+            return Ok(head.oid().to_string());
+        }
+    }
+    anyhow::bail!("ref {} not found on remote {}", ref_spec, repo_url)
+}
+
 fn fetch_origin(repo: &Repository) -> Result<()> {
     let mut remote = repo.find_remote("origin")?;
     let mut opts = FetchOptions::new();

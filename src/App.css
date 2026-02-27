@@ -486,6 +486,42 @@
   border-color: var(--accent-primary);
 }
 
+/* Update available indicator */
+.update-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-warning);
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: update-pulse 2s ease-in-out infinite;
+}
+
+@keyframes update-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.card-btn.primary-action.has-update {
+  color: var(--status-warning);
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--status-warning);
+}
+
+.card-btn.primary-action.has-update:hover {
+  background: var(--status-warning);
+  color: #fff;
+  border-color: var(--status-warning);
+}
+
 .card-btn.danger-action:hover {
   color: var(--status-error);
   background: var(--danger-soft-bg);
@@ -1430,6 +1466,11 @@
   font-size: 13px;
 }
 
+span.settings-input {
+  display: flex;
+  align-items: center;
+}
+
 .settings-input:focus {
   outline: none;
   border-color: var(--accent-primary);
@@ -1539,6 +1580,181 @@
 
 .btn-full {
   width: 100%;
+}
+
+/* ── Remote Hosts Modal ──────────────────────────────────────────── */
+
+.remote-hosts-modal {
+  width: min(560px, 100%);
+}
+
+.remote-hosts-modal .modal-body {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.remote-hosts-notice {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-element);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.remote-hosts-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.remote-hosts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.remote-host-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s;
+}
+
+.remote-host-card:hover {
+  border-color: var(--border-strong);
+}
+
+.remote-host-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.remote-host-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.remote-host-info strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.remote-host-address {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.remote-host-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.status-dot.status-ok {
+  background: var(--status-success);
+  box-shadow: 0 0 0 2px var(--success-soft-border);
+}
+
+.status-dot.status-syncing {
+  background: var(--accent-primary);
+  animation: update-pulse 1.5s ease-in-out infinite;
+}
+
+.status-dot.status-error {
+  background: var(--status-error);
+}
+
+.remote-host-sync-info {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.remote-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-tools-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.remote-tools-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.remote-tool-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--success-soft-bg);
+  border: 1px solid var(--success-soft-border);
+  color: var(--status-success);
+  font-weight: 500;
+}
+
+.remote-tools-none {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.remote-host-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.remote-host-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.remote-test-result {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-element);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.remote-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 /* ── ClawHub Search ────────────────────────────────────────────── */
@@ -2034,4 +2250,214 @@
   border-color: var(--border-strong);
   transform: translateY(-1px);
   box-shadow: var(--shadow-lg);
+}
+
+/* ── Environment-labeled tool sections ─────────────────────────── */
+
+.tool-env-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tool-env-section:first-of-type {
+  margin-top: 10px;
+}
+
+.tool-env-label {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+  text-transform: uppercase;
+}
+
+.tool-env-label.local {
+  background: var(--accent-soft-bg);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-soft-border);
+}
+
+.tool-env-label.remote {
+  background: rgba(147, 51, 234, 0.08);
+  color: #9333ea;
+  border: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+[data-theme="dark"] .tool-env-label.remote {
+  background: rgba(192, 132, 252, 0.12);
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.25);
+}
+
+.tool-env-section .tool-matrix {
+  margin-top: 0;
+}
+
+/* Remote tool pill styling (read-only, purple dot) */
+.tool-pill.remote-tool {
+  cursor: default;
+  background: rgba(147, 51, 234, 0.05);
+  border-color: rgba(147, 51, 234, 0.15);
+  color: #7c3aed;
+}
+
+[data-theme="dark"] .tool-pill.remote-tool {
+  background: rgba(192, 132, 252, 0.08);
+  border-color: rgba(192, 132, 252, 0.2);
+  color: #c084fc;
+}
+
+.status-badge.remote {
+  background: #9333ea;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
+}
+
+[data-theme="dark"] .status-badge.remote {
+  background: #c084fc;
+  box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.25);
+}
+
+/* ── Sync to remote dropdown ──────────────────────────────────── */
+
+.sync-remote-wrap {
+  position: relative;
+}
+
+.card-btn.remote-action {
+  color: #9333ea;
+  background: rgba(147, 51, 234, 0.08);
+  border-color: rgba(147, 51, 234, 0.2);
+}
+
+.card-btn.remote-action:hover {
+  background: #9333ea;
+  color: #fff;
+  border-color: #9333ea;
+}
+
+[data-theme="dark"] .card-btn.remote-action {
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+  border-color: rgba(192, 132, 252, 0.25);
+}
+
+[data-theme="dark"] .card-btn.remote-action:hover {
+  background: #c084fc;
+  color: #1a1a2e;
+  border-color: #c084fc;
+}
+
+.sync-remote-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 160px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.sync-remote-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.sync-remote-item:hover {
+  background: var(--bg-element);
+}
+
+.sync-remote-item.synced {
+  color: var(--status-success);
+}
+
+.sync-remote-label {
+  font-weight: 500;
+}
+
+.sync-remote-check {
+  font-size: 14px;
+  color: var(--status-success);
+}
+
+/* ── Selective sync panel ─────────────────────────────────────── */
+
+.select-sync-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.select-sync-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.select-sync-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+
+.select-sync-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.select-sync-item:hover {
+  background: var(--bg-element);
+}
+
+.select-sync-item.select-all {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.select-sync-item input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  width: 14px;
+  height: 14px;
+}
+
+.select-sync-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
