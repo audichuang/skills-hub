@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-27
+
+### Added
+
+* **Traditional Chinese (zh-TW) locale**: Full translation with all 330+ keys; renamed `zh` to `zh-CN` (Simplified Chinese).
+* **Source type filter**: Segment-control style pill buttons in FilterBar to filter skills by source (All / Local / Git / ClawHub).
+* Language selector upgraded from toggle to 3-option `<select>` dropdown (EN / 简中 / 繁中) in both Header and Settings.
+* Auto-migration of stored `zh` language preference to `zh-CN`.
+
+### Changed
+
+* **UI overhaul**: Migrated color palette from Zinc to Slate scale for a modern feel.
+* Increased border-radius across the design system (4→6, 8→10, 12→14 px).
+* Three-tier shadow system (`--shadow-sm`, `--shadow-md`, `--shadow-lg`).
+* Header gains subtle `box-shadow` for depth separation.
+* Skill cards use `bg-panel` with `shadow-sm` for elevated appearance; stronger hover lift (`shadow-md`).
+* Empty state uses solid border + centered text instead of dashed border.
+* Primary buttons gain `active` press-down effect.
+* Modal backdrop uses `backdrop-filter: blur(4px)` for frosted-glass effect.
+* Remote host description in Settings uses dedicated `.settings-hint` class instead of input styling.
+
+### Fixed
+
+* **VM connection handling**: TCP connect timeout (15 s), SSH session timeout (30 s).
+* SSH `stderr` read order fixed (read before `wait_close`).
+* SFTP `mkdir_p` now propagates errors instead of silently ignoring them.
+* `default_tool_adapters()` cached outside loop in `sync_all_skills_to_remote`.
+* `sync_all_skills_to_remote` uses partial-success mode (continues on individual skill failure).
+* Port range validation (1–65535) added to `add_remote_host` / `update_remote_host`.
+* Frontend tool detection race condition fixed (uses `Set` instead of single ID).
+* Vertical centering for remote host description row in Settings.
+
 ## [0.2.2] - 2026-02-22
 
 ### Fixed
