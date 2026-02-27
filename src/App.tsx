@@ -39,9 +39,9 @@ function App() {
   const language = i18n.resolvedLanguage ?? i18n.language ?? 'en'
   const languageStorageKey = 'skills-language'
   const themeStorageKey = 'skills-theme'
-  const toggleLanguage = useCallback(() => {
-    void i18n.changeLanguage(language === 'en' ? 'zh' : 'en')
-  }, [i18n, language])
+  const changeLanguage = useCallback((lang: string) => {
+    void i18n.changeLanguage(lang)
+  }, [i18n])
   const [themePreference, setThemePreference] = useState<'system' | 'light' | 'dark'>(
     'system',
   )
@@ -281,7 +281,7 @@ function App() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (language !== 'en' && language !== 'zh') return
+    if (!['en', 'zh-CN', 'zh-TW'].includes(language)) return
     try {
       window.localStorage.setItem(languageStorageKey, language)
     } catch {
@@ -1887,7 +1887,7 @@ function App() {
       <Header
         language={language}
         loading={loading}
-        onToggleLanguage={toggleLanguage}
+        onChangeLanguage={changeLanguage}
         onOpenSettings={handleOpenSettings}
         onOpenAdd={handleOpenAdd}
         t={t}
@@ -1995,7 +1995,7 @@ function App() {
         gitCacheTtlSecs={gitCacheTtlSecs}
         themePreference={themePreference}
         onPickStoragePath={handlePickStoragePath}
-        onToggleLanguage={toggleLanguage}
+        onChangeLanguage={changeLanguage}
         onThemeChange={handleThemeChange}
         onGitCacheCleanupDaysChange={handleGitCacheCleanupDaysChange}
         onGitCacheTtlSecsChange={handleGitCacheTtlSecsChange}

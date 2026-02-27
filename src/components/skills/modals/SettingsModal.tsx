@@ -10,7 +10,7 @@ type SettingsModalProps = {
   gitCacheTtlSecs: number
   themePreference: 'system' | 'light' | 'dark'
   onPickStoragePath: () => void
-  onToggleLanguage: () => void
+  onChangeLanguage: (lang: string) => void
   onThemeChange: (nextTheme: 'system' | 'light' | 'dark') => void
   onGitCacheCleanupDaysChange: (nextDays: number) => void
   onGitCacheTtlSecsChange: (nextSecs: number) => void
@@ -29,11 +29,11 @@ const SettingsModal = ({
   gitCacheTtlSecs,
   themePreference,
   onPickStoragePath,
-  onToggleLanguage,
   onThemeChange,
   onGitCacheCleanupDaysChange,
   onGitCacheTtlSecsChange,
   onClearGitCacheNow,
+  onChangeLanguage,
   onOpenRemoteHosts,
   onRequestClose,
   t,
@@ -101,14 +101,11 @@ const SettingsModal = ({
                 id="settings-language"
                 className="settings-select"
                 value={language}
-                onChange={(event) => {
-                  if (event.target.value !== language) {
-                    onToggleLanguage()
-                  }
-                }}
+                onChange={(event) => onChangeLanguage(event.target.value)}
               >
                 <option value="en">{t('languageOptions.en')}</option>
-                <option value="zh">{t('languageOptions.zh')}</option>
+                <option value="zh-CN">{t('languageOptions.zh-CN')}</option>
+                <option value="zh-TW">{t('languageOptions.zh-TW')}</option>
               </select>
               <svg
                 className="settings-select-caret"
