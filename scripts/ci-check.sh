@@ -3,28 +3,35 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "=== 1/6 version:check ==="
+VERSION=$(node -p "require('./package.json').version")
+
+echo "=== 1/7 version:check ==="
 npm run version:check
 
 echo ""
-echo "=== 2/6 eslint ==="
+echo "=== 2/7 changelog:check ==="
+node scripts/extract-changelog.mjs "$VERSION" > /dev/null
+echo "Changelog OK for $VERSION"
+
+echo ""
+echo "=== 3/7 eslint ==="
 npm run lint
 
 echo ""
-echo "=== 3/6 vite build ==="
+echo "=== 4/7 vite build ==="
 npm run build
 
 echo ""
-echo "=== 4/6 cargo fmt ==="
+echo "=== 5/7 cargo fmt ==="
 cd src-tauri
 cargo fmt --all -- --check
 
 echo ""
-echo "=== 5/6 cargo clippy ==="
+echo "=== 6/7 cargo clippy ==="
 cargo clippy --all-targets --all-features -- -D warnings
 
 echo ""
-echo "=== 6/6 cargo test ==="
+echo "=== 7/7 cargo test ==="
 cargo test --all
 
 echo ""
