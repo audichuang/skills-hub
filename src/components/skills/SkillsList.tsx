@@ -27,9 +27,11 @@ type SkillsListProps = {
   remoteSkillStatuses: Record<string, RemoteSkillsDto>
   remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
   onSyncToRemote: (skill: ManagedSkill, hostId: string) => void
+  onToggleRemoteTool: (skill: ManagedSkill, hostId: string, toolKey: string) => void
   remoteSyncing: string | null
   customTargets: CustomTarget[]
   onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
+  hiddenTools: string[]
   t: TFunction
 }
 
@@ -51,9 +53,11 @@ const SkillsList = ({
   remoteSkillStatuses,
   remoteToolStatuses,
   onSyncToRemote,
+  onToggleRemoteTool,
   remoteSyncing,
   customTargets,
   onToggleCustomTarget,
+  hiddenTools,
   t,
 }: SkillsListProps) => {
   return (
@@ -104,9 +108,11 @@ const SkillsList = ({
               remoteSkillStatuses={remoteSkillStatuses}
               remoteToolStatuses={remoteToolStatuses}
               onSyncToRemote={onSyncToRemote}
+              onToggleRemoteTool={onToggleRemoteTool}
               remoteSyncing={remoteSyncing}
               customTargets={customTargets}
               onToggleCustomTarget={onToggleCustomTarget}
+              hiddenTools={hiddenTools}
               t={t}
             />
           ))}

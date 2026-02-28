@@ -263,6 +263,33 @@ pub fn create_remote_symlink(sess: &Session, source: &str, target: &str) -> Resu
     Ok(())
 }
 
+/// Remove a symlink (or directory) on the remote host.
+pub fn remove_remote_symlink(sess: &Session, target: &str) -> Result<()> {
+    ssh_exec(sess, &format!("rm -rf '{}'", target))?;
+    Ok(())
+}
+
+/// Unsync a single skill from a specific tool on the remote host.
+/// Removes the symlink at ~/<tool_skills_dir>/<skill_name>.
+/// Does NOT remove the central copy (~/.skillshub/<name>).
+pub fn unsync_skill_from_remote_tool(
+    sess: &Session,
+    skill_name: &str,
+    tool_key: &str,
+) -> Result<()> {
+    let adapter = default_tool_adapters()
+        .into_iter()
+        .find(|a| a.id.as_key() == tool_key)
+        .ok_or_else(|| anyhow::anyhow!("unknown tool key: {}", tool_key))?;
+
+    let home = ssh_exec(sess, "echo $HOME")?;
+    let home = home.trim();
+    let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, skill_name);
+
+    remove_remote_symlink(sess, &abs_tool)?;
+    Ok(())
+}
+
 /// Sync a single skill to a specific tool on the remote host.
 /// 1. Upload skill to remote central repo (~/.skillshub/<name>)
 /// 2. Symlink from central repo to tool skills dir
@@ -376,6 +403,62 @@ pub fn list_remote_skills(sess: &Session) -> Result<Vec<String>> {
         .filter(|l| !l.is_empty())
         .collect();
     Ok(names)
+}
+
+/// Check which tool×skill symlinks actually exist on the remote host.
+/// Given the list of skill names present in ~/.skillshub/ and the list of
+/// installed tool keys, builds a single batch SSH command to test all
+/// combinations and returns `(tool_key, skill_name, linked)` triples.
+pub fn list_remote_skill_links(
+    sess: &Session,
+    skills: &[String],
+    installed_tool_keys: &[String],
+) -> Result<Vec<(String, String, bool)>> {
+    if skills.is_empty() || installed_tool_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let adapters = default_tool_adapters();
+    let relevant: Vec<_> = adapters
+        .iter()
+        .filter(|a| installed_tool_keys.contains(&a.id.as_key().to_string()))
+        .collect();
+
+    if relevant.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Build batch: test -e ~/<tool_skills_dir>/<skill> && echo 'Y|<key>|<skill>' || echo 'N|<key>|<skill>'
+    // Use '|' as separator to avoid collision with skill names potentially containing ':'
+    let mut checks: Vec<String> = Vec::new();
+    for adapter in &relevant {
+        let key = adapter.id.as_key();
+        for skill in skills {
+            checks.push(format!(
+                "test -e ~/{}/{} && echo 'Y|{}|{}' || echo 'N|{}|{}'",
+                adapter.relative_skills_dir, skill, key, skill, key, skill
+            ));
+        }
+    }
+
+    let combined = checks.join(" ; ");
+    let output = ssh_exec(sess, &combined)?;
+
+    let mut results = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Y|") {
+            if let Some((key, skill)) = rest.split_once('|') {
+                results.push((key.to_string(), skill.to_string(), true));
+            }
+        } else if let Some(rest) = line.strip_prefix("N|") {
+            if let Some((key, skill)) = rest.split_once('|') {
+                results.push((key.to_string(), skill.to_string(), false));
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

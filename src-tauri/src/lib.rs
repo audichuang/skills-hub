@@ -98,6 +98,7 @@ pub fn run() {
             commands::get_remote_tool_status,
             commands::sync_all_skills_to_remote,
             commands::sync_remote_skill_to_tool,
+            commands::unsync_remote_skill_from_tool,
             commands::list_remote_skills,
             commands::sync_selected_skills_to_remote,
             commands::list_custom_targets,

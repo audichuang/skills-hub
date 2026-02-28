@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, FolderOpen, FolderPlus, Globe, Monitor, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TFunction } from 'i18next'
-import type { CustomTarget, RemoteHost } from '../types'
+import type { CustomTarget, RemoteHost, ToolOption } from '../types'
 
 type SettingsModalProps = {
   open: boolean
@@ -24,6 +24,9 @@ type SettingsModalProps = {
   remoteHosts: RemoteHost[]
   invokeTauri: <T, >(command: string, args?: Record<string, unknown>) => Promise<T>
   onCustomTargetsChanged: () => Promise<void>
+  installedTools: ToolOption[]
+  hiddenTools: string[]
+  onToggleToolVisibility: (toolId: string) => void
   t: TFunction
 }
 
@@ -47,6 +50,9 @@ const SettingsModal = ({
   remoteHosts,
   invokeTauri,
   onCustomTargetsChanged,
+  installedTools,
+  hiddenTools,
+  onToggleToolVisibility,
   t,
 }: SettingsModalProps) => {
   const [appVersion, setAppVersion] = useState<string | null>(null)
@@ -539,6 +545,34 @@ const SettingsModal = ({
               </button>
             )}
           </div>
+
+          {/* ── Tool Visibility ────────────────────────────── */}
+          {installedTools.length > 0 && (
+            <div className="settings-field">
+              <label className="settings-label">
+                {t('toolVisibility.title')}
+              </label>
+              <div className="settings-helper" style={{ marginBottom: 8 }}>
+                {t('toolVisibility.hint')}
+              </div>
+              <div className="tool-visibility-chips">
+                {installedTools.map((tool) => {
+                  const hidden = hiddenTools.includes(tool.id)
+                  return (
+                    <button
+                      key={tool.id}
+                      type="button"
+                      className={`tool-visibility-chip ${hidden ? 'hidden-tool' : 'visible-tool'}`}
+                      onClick={() => onToggleToolVisibility(tool.id)}
+                      title={hidden ? t('toolVisibility.show') : t('toolVisibility.hide')}
+                    >
+                      {tool.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="settings-version">
             {t('appName')} {versionText}

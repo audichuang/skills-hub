@@ -25,9 +25,11 @@ type SkillCardProps = {
   remoteSkillStatuses: Record<string, RemoteSkillsDto>
   remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
   onSyncToRemote: (skill: ManagedSkill, hostId: string) => void
+  onToggleRemoteTool: (skill: ManagedSkill, hostId: string, toolKey: string) => void
   remoteSyncing: string | null
   customTargets: CustomTarget[]
   onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
+  hiddenTools: string[]
   t: TFunction
 }
 
@@ -47,9 +49,11 @@ const SkillCard = ({
   remoteSkillStatuses,
   remoteToolStatuses,
   onSyncToRemote,
+  onToggleRemoteTool,
   remoteSyncing,
   customTargets,
   onToggleCustomTarget,
+  hiddenTools,
   t,
 }: SkillCardProps) => {
   const [showRemoteMenu, setShowRemoteMenu] = useState(false)
@@ -64,13 +68,13 @@ const SkillCard = ({
   const github = getGithubInfo(skill.source_ref)
   const copyValue = (github?.href ?? skill.source_ref ?? '').trim()
 
-  // Which remote hosts have this skill?
-  const syncedHosts = remoteHosts.filter((host) => {
-    const status = remoteSkillStatuses[host.id]
-    return status?.skills?.includes(skill.name)
+  // Remote hosts that have detected tools (always shown)
+  const hostsWithTools = remoteHosts.filter((host) => {
+    const hostTools = remoteToolStatuses[host.id] ?? []
+    return hostTools.some((t) => t.installed)
   })
 
-  // Unsync'd remote hosts (for sync menu)
+  // Hosts where this skill's central copy doesn't exist yet (for sync button)
   const unsyncedHosts = remoteHosts.filter((host) => {
     const status = remoteSkillStatuses[host.id]
     return !status?.skills?.includes(skill.name)
@@ -168,9 +172,9 @@ const SkillCard = ({
         </div>
 
         {/* ── VM sections (IDE tools + custom targets merged per host) ── */}
-        {syncedHosts.map((host) => {
+        {hostsWithTools.map((host) => {
           const hostTools = remoteToolStatuses[host.id] ?? []
-          const installedRemoteTools = hostTools.filter((t) => t.installed)
+          const installedRemoteTools = hostTools.filter((t) => t.installed && !hiddenTools.includes(t.key))
           const hostCTs = customTargets.filter((ct) => ct.remote_host_id === host.id)
           if (installedRemoteTools.length === 0 && hostCTs.length === 0) return null
           return (
@@ -179,15 +183,23 @@ const SkillCard = ({
                 {host.label}
               </div>
               <div className="tool-matrix">
-                {installedRemoteTools.map((tool) => (
-                  <span
-                    key={`${skill.id}-remote-${host.id}-${tool.key}`}
-                    className="tool-pill active remote-tool"
-                  >
-                    <span className="status-badge remote" />
-                    {tool.label}
-                  </span>
-                ))}
+                {installedRemoteTools.map((tool) => {
+                  const toolLinks = remoteSkillStatuses[host.id]?.toolLinks ?? []
+                  const synced = toolLinks.some((l) => l.toolKey === tool.key && l.skillName === skill.name && l.linked)
+                  const state = synced ? 'active remote-tool' : 'inactive'
+                  return (
+                    <button
+                      key={`${skill.id}-remote-${host.id}-${tool.key}`}
+                      type="button"
+                      className={`tool-pill ${state}`}
+                      title={tool.label}
+                      onClick={(e) => { e.stopPropagation(); onToggleRemoteTool(skill, host.id, tool.key) }}
+                    >
+                      {synced ? <span className="status-badge remote" /> : null}
+                      {tool.label}
+                    </button>
+                  )
+                })}
                 {hostCTs.map((ct) => {
                   const synced = skill.targets.some((tgt) => tgt.tool === `custom:${ct.id}`)
                   return (
@@ -211,10 +223,10 @@ const SkillCard = ({
 
         {/* ── Hosts with ONLY custom targets (not in syncedHosts) ─── */}
         {(() => {
-          const syncedHostIds = new Set(syncedHosts.map((h) => h.id))
+          const shownHostIds = new Set(hostsWithTools.map((h) => h.id))
           const remoteCTsByHost = new Map<string, { host: RemoteHost; targets: CustomTarget[] }>()
           for (const ct of customTargets) {
-            if (!ct.remote_host_id || syncedHostIds.has(ct.remote_host_id)) continue
+            if (!ct.remote_host_id || shownHostIds.has(ct.remote_host_id)) continue
             const existing = remoteCTsByHost.get(ct.remote_host_id)
             const host = remoteHosts.find((h) => h.id === ct.remote_host_id)
             if (existing) {

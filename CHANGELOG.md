@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-03-01
+
+### Added
+
+* **Per-tool remote sync/unsync**: Toggle individual IDE tool symlinks on remote hosts directly from SkillCard and SkillDetailModal. New backend commands `unsync_remote_skill_from_tool` and `list_remote_skill_links` for granular control.
+* **Tool visibility settings**: Hide/show specific IDE tools from skill cards via chip toggles in Settings. Hidden tools still function normally; preference persisted in localStorage.
+* **Per-tool link status**: `RemoteSkillsDto` now includes `toolLinks` array showing which tool×skill symlinks exist on each remote host.
+* New `RemoteToolLinkDto` type for per-tool symlink status.
+* i18n keys for tool visibility UI across all three locales (EN / zh-CN / zh-TW).
+
+### Changed
+
+* **`git-cloned` source type**: Single-skill repos installed via direct clone now use `git pull` in-place instead of staging-dir swap, preserving Git history.
+* SkillCard remote tool pills changed from static `<span>` to interactive `<button>` with sync/unsync toggle and visual state (active/inactive).
+* Remote host sections in SkillCard now display based on detected tools (`hostsWithTools`) instead of synced skills (`syncedHosts`).
+* Source filter now groups `git` and `git-cloned` types together under the "Git" filter.
+* `list_remote_skill_links` uses `|` separator instead of `:` to avoid collision with skill names containing colons.
+
+### Fixed
+
+* Redundant `setActionMessage(statusText)` removed from `runToggleToolForSkill` — toast message was flashing and immediately clearing.
+
 ## [0.3.1] - 2026-02-28
 
 ### Added

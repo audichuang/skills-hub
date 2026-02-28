@@ -1219,11 +1219,58 @@ pub async fn sync_remote_skill_to_tool(
     .map_err(|err| err.to_string())?
 }
 
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn unsync_remote_skill_from_tool(
+    store: State<'_, SkillStore>,
+    hostId: String,
+    skillId: String,
+    toolKey: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("remote host not found: {}", hostId))?;
+
+        let skill = store
+            .get_skill_by_id(&skillId)
+            .map_err(format_anyhow_error)?
+            .ok_or_else(|| format!("skill not found: {}", skillId))?;
+
+        let sess = remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )
+        .map_err(format_anyhow_error)?;
+
+        remote_sync::unsync_skill_from_remote_tool(&sess, &skill.name, &toolKey)
+            .map_err(format_anyhow_error)?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteToolLinkDto {
+    pub toolKey: String,
+    pub skillName: String,
+    pub linked: bool,
+}
+
 #[derive(Debug, Serialize)]
 #[allow(non_snake_case)]
 pub struct RemoteSkillsDto {
     pub hostId: String,
     pub skills: Vec<String>,
+    pub toolLinks: Vec<RemoteToolLinkDto>,
 }
 
 #[tauri::command]
@@ -1250,12 +1297,36 @@ pub async fn list_remote_skills(
 
         let skills = remote_sync::list_remote_skills(&sess).map_err(format_anyhow_error)?;
 
+        // Detect installed tools so we can check per-tool symlinks
+        let tools = remote_sync::detect_remote_tools(&sess).map_err(format_anyhow_error)?;
+        let installed_keys: Vec<String> = tools
+            .iter()
+            .filter(|(_, _, installed)| *installed)
+            .map(|(key, _, _)| key.clone())
+            .collect();
+
+        let links = remote_sync::list_remote_skill_links(&sess, &skills, &installed_keys)
+            .map_err(format_anyhow_error)?;
+
+        let tool_links: Vec<RemoteToolLinkDto> = links
+            .into_iter()
+            .map(|(tool_key, skill_name, linked)| RemoteToolLinkDto {
+                toolKey: tool_key,
+                skillName: skill_name,
+                linked,
+            })
+            .collect();
+
         // SSH succeeded → reset status if it was previously "error"
         store
             .update_remote_host_sync_status(&hostId, "ok", None)
             .ok();
 
-        Ok(RemoteSkillsDto { hostId, skills })
+        Ok(RemoteSkillsDto {
+            hostId,
+            skills,
+            toolLinks: tool_links,
+        })
     })
     .await
     .map_err(|err| err.to_string())?

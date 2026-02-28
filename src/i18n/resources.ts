@@ -350,6 +350,12 @@ export const resources = {
         emptyDir: 'Empty directory',
         local: 'Local',
       },
+      toolVisibility: {
+        title: 'Tool Visibility',
+        hint: 'Toggle which tools are shown on skill cards. Hidden tools still function normally.',
+        show: 'Click to show',
+        hide: 'Click to hide',
+      },
     },
   },
   'zh-CN': {
@@ -694,6 +700,12 @@ export const resources = {
         emptyDir: '空目录',
         local: '本机',
       },
+      toolVisibility: {
+        title: '工具显示',
+        hint: '选择要在技能卡片上显示的工具。隐藏的工具仍正常运作。',
+        show: '点击显示',
+        hide: '点击隐藏',
+      },
     },
   },
   'zh-TW': {
@@ -1037,6 +1049,12 @@ export const resources = {
         selectHere: '選擇',
         emptyDir: '空目錄',
         local: '本機',
+      },
+      toolVisibility: {
+        title: '工具顯示',
+        hint: '選擇要在技能卡片上顯示的工具。隱藏的工具仍正常運作。',
+        show: '點擊顯示',
+        hide: '點擊隱藏',
       },
     },
   },

@@ -104,6 +104,12 @@ function App() {
   const [remoteToolStatuses, setRemoteToolStatuses] = useState<Record<string, RemoteToolInfoDto[]>>({})
   const [remoteSyncing, setRemoteSyncing] = useState<string | null>(null)
   const [customTargets, setCustomTargets] = useState<CustomTarget[]>([])
+  const [hiddenTools, setHiddenTools] = useState<string[]>(() => {
+    try {
+      const stored = window.localStorage.getItem('skills-hub-hidden-tools')
+      return stored ? JSON.parse(stored) as string[] : []
+    } catch { return [] }
+  })
 
   const isTauri =
     typeof window !== 'undefined' &&
@@ -451,12 +457,30 @@ function App() {
     () => tools.filter((tool) => installedToolIds.includes(tool.id)),
     [tools, installedToolIds],
   )
+  const visibleTools = useMemo(
+    () => installedTools.filter((tool) => !hiddenTools.includes(tool.id)),
+    [installedTools, hiddenTools],
+  )
+  const handleToggleToolVisibility = useCallback((toolId: string) => {
+    setHiddenTools((prev) => {
+      const next = prev.includes(toolId)
+        ? prev.filter((id) => id !== toolId)
+        : [...prev, toolId]
+      try { window.localStorage.setItem('skills-hub-hidden-tools', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
 
   const visibleSkills = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     const filtered = managedSkills.filter((skill) => {
-      // Source filter
-      if (sourceFilter !== 'all' && skill.source_type !== sourceFilter) return false
+      if (sourceFilter !== 'all') {
+        const st = skill.source_type
+        const matches = sourceFilter === 'git'
+          ? (st === 'git' || st === 'git-cloned')
+          : st === sourceFilter
+        if (!matches) return false
+      }
       // Text search
       if (!query) return true
       return (
@@ -804,6 +828,60 @@ function App() {
       }
     },
     [invokeTauri, remoteHosts, loadRemoteHosts, t],
+  )
+
+  const runToggleRemoteToolForSkill = useCallback(
+    async (skill: ManagedSkill, hostId: string, toolKey: string) => {
+      if (loading) return
+      const host = remoteHosts.find((h) => h.id === hostId)
+      const hostLabel = host?.label ?? hostId
+      const toolLinks = remoteSkillStatuses[hostId]?.toolLinks ?? []
+      const synced = toolLinks.some((l) => l.toolKey === toolKey && l.skillName === skill.name && l.linked)
+
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        if (synced) {
+          setActionMessage(
+            t('actions.unsyncing', { name: skill.name, tool: hostLabel }),
+          )
+          await invokeTauri('unsync_remote_skill_from_tool', {
+            hostId,
+            skillId: skill.id,
+            toolKey,
+          })
+        } else {
+          setActionMessage(
+            t('actions.syncing', { name: skill.name, tool: hostLabel }),
+          )
+          await invokeTauri('sync_remote_skill_to_tool', {
+            hostId,
+            skillId: skill.id,
+            toolKey,
+          })
+        }
+        const statusText = synced
+          ? t('status.syncDisabled')
+          : t('status.syncEnabled')
+        setSuccessToastMessage(statusText)
+        setActionMessage(null)
+        // Refresh remote skill statuses while still in loading state
+        try {
+          const result = await invokeTauri<RemoteSkillsDto>('list_remote_skills', { hostId })
+          setRemoteSkillStatuses((prev) => ({ ...prev, [hostId]: result }))
+        } catch (refreshErr) {
+          console.warn('Failed to refresh remote skills after toggle:', refreshErr)
+        }
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        setError(raw)
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
+    },
+    [invokeTauri, loading, remoteHosts, remoteSkillStatuses, t],
   )
 
   const handleThemeChange = useCallback(
@@ -1799,7 +1877,6 @@ function App() {
         const statusText = synced
           ? t('status.syncDisabled')
           : t('status.syncEnabled')
-        setActionMessage(statusText)
         setSuccessToastMessage(statusText)
         setActionMessage(null)
         await loadManagedSkills()
@@ -1857,7 +1934,6 @@ function App() {
         const statusText = synced
           ? t('status.syncDisabled')
           : t('status.syncEnabled')
-        setActionMessage(statusText)
         setSuccessToastMessage(statusText)
         setActionMessage(null)
         await loadManagedSkills()
@@ -1989,7 +2065,7 @@ function App() {
           <SkillsList
             plan={plan}
             visibleSkills={visibleSkills}
-            installedTools={installedTools}
+            installedTools={visibleTools}
             loading={loading}
             updateStatuses={updateStatuses}
             getGithubInfo={getGithubInfo}
@@ -2004,9 +2080,11 @@ function App() {
             remoteSkillStatuses={remoteSkillStatuses}
             remoteToolStatuses={remoteToolStatuses}
             onSyncToRemote={handleSyncSkillToRemote}
+            onToggleRemoteTool={runToggleRemoteToolForSkill}
             remoteSyncing={remoteSyncing}
             customTargets={customTargets}
             onToggleCustomTarget={runToggleCustomTargetForSkill}
+            hiddenTools={hiddenTools}
             t={t}
           />
         </div>
@@ -2022,7 +2100,7 @@ function App() {
         gitUrl={gitUrl}
         gitName={gitName}
         syncTargets={syncTargets}
-        installedTools={installedTools}
+        installedTools={visibleTools}
         toolStatus={toolStatus}
         searchQuery={clawHubQuery}
         searchResults={clawHubResults}
@@ -2090,6 +2168,9 @@ function App() {
         remoteHosts={remoteHosts}
         invokeTauri={invokeTauri}
         onCustomTargetsChanged={loadCustomTargets}
+        installedTools={installedTools}
+        hiddenTools={hiddenTools}
+        onToggleToolVisibility={handleToggleToolVisibility}
         t={t}
       />
 
@@ -2157,7 +2238,7 @@ function App() {
 
       <SkillDetailModal
         skill={selectedSkill}
-        installedTools={installedTools}
+        installedTools={visibleTools}
         loading={loading}
         formatRelative={formatRelative}
         onUpdate={handleUpdateSkill}
@@ -2171,6 +2252,8 @@ function App() {
         remoteToolStatuses={remoteToolStatuses}
         remoteSkillStatuses={remoteSkillStatuses}
         onToggleCustomTarget={runToggleCustomTargetForSkill}
+        onToggleRemoteTool={runToggleRemoteToolForSkill}
+        hiddenTools={hiddenTools}
       />
 
       <ClawHubDetailModal

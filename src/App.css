@@ -1529,6 +1529,47 @@
   outline-offset: 2px;
 }
 
+.tool-visibility-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tool-visibility-chip {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-element);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+}
+
+.tool-visibility-chip.visible-tool {
+  border-color: var(--status-success);
+  color: var(--status-success);
+  background: var(--success-soft-bg);
+}
+
+.tool-visibility-chip.visible-tool:hover {
+  background: var(--bg-element-hover);
+}
+
+.tool-visibility-chip.hidden-tool {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.tool-visibility-chip.hidden-tool:hover {
+  opacity: 0.9;
+  color: var(--text-secondary);
+}
+
 .settings-input-row {
   display: flex;
   gap: 8px;
@@ -2387,7 +2428,7 @@ span.settings-input {
   gap: 10px;
 }
 
-.custom-target-form-fields > .settings-input {
+.custom-target-form-fields>.settings-input {
   flex: none;
   width: 100%;
 }
@@ -2764,6 +2805,7 @@ span.settings-input {
 /* ── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 860px) {
+
   /* ── Header ── */
   .skills-header {
     padding: 0 16px;
@@ -2848,6 +2890,7 @@ span.settings-input {
 }
 
 @media (max-width: 640px) {
+
   /* ── Modal ── */
   .modal-backdrop {
     padding: 12px;

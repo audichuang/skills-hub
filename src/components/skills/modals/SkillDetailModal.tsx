@@ -33,6 +33,8 @@ type SkillDetailModalProps = {
     remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
     remoteSkillStatuses: Record<string, RemoteSkillsDto>
     onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
+    onToggleRemoteTool: (skill: ManagedSkill, hostId: string, toolKey: string) => void
+    hiddenTools: string[]
 }
 
 const SkillDetailModal = ({
@@ -51,6 +53,8 @@ const SkillDetailModal = ({
     remoteToolStatuses,
     remoteSkillStatuses,
     onToggleCustomTarget,
+    onToggleRemoteTool,
+    hiddenTools,
 }: SkillDetailModalProps) => {
     const [clawHubDetail, setClawHubDetail] = useState<ClawHubDetail | null>(null)
     const [detailLoading, setDetailLoading] = useState(false)
@@ -293,13 +297,13 @@ const SkillDetailModal = ({
                         </div>
                         {/* VM tools + VM custom targets */}
                         {remoteHosts.filter((host) => {
-                            const status = remoteSkillStatuses[host.id]
-                            const hasSkill = status?.skills?.includes(skill.name)
+                            const hostTools = remoteToolStatuses[host.id] ?? []
+                            const hasInstalledTools = hostTools.some((t) => t.installed)
                             const hasCTs = customTargets.some((ct) => ct.remote_host_id === host.id)
-                            return hasSkill || hasCTs
+                            return hasInstalledTools || hasCTs
                         }).map((host) => {
                             const hostTools = remoteToolStatuses[host.id] ?? []
-                            const installedRemoteTools = hostTools.filter((t) => t.installed)
+                            const installedRemoteTools = hostTools.filter((t) => t.installed && !hiddenTools.includes(t.key))
                             const hostCTs = customTargets.filter((ct) => ct.remote_host_id === host.id)
                             if (installedRemoteTools.length === 0 && hostCTs.length === 0) return null
                             return (
@@ -309,15 +313,23 @@ const SkillDetailModal = ({
                                         {host.label}
                                     </div>
                                     <div className="detail-targets">
-                                        {installedRemoteTools.map((tool) => (
-                                            <span
-                                                key={`remote-${host.id}-${tool.key}`}
-                                                className="tool-pill active remote-tool"
-                                            >
-                                                <span className="status-badge remote" />
-                                                {tool.label}
-                                            </span>
-                                        ))}
+                                        {installedRemoteTools.map((tool) => {
+                                            const toolLinks = remoteSkillStatuses[host.id]?.toolLinks ?? []
+                                            const synced = toolLinks.some((l) => l.toolKey === tool.key && l.skillName === skill.name && l.linked)
+                                            const state = synced ? 'active remote-tool' : 'inactive'
+                                            return (
+                                                <button
+                                                    key={`remote-${host.id}-${tool.key}`}
+                                                    type="button"
+                                                    className={`tool-pill ${state}`}
+                                                    title={tool.label}
+                                                    onClick={() => void onToggleRemoteTool(skill, host.id, tool.key)}
+                                                >
+                                                    {synced ? <span className="status-badge remote" /> : null}
+                                                    {tool.label}
+                                                </button>
+                                            )
+                                        })}
                                         {hostCTs.map((ct) => {
                                             const toolKey = `custom:${ct.id}`
                                             const target = skill.targets.find((t) => t.tool === toolKey)

@@ -102,52 +102,82 @@ pub fn install_git_skill<R: tauri::Runtime>(
 
     cleanup_orphan_central_path(&central_path, store)?;
 
-    // Always clone into a temp dir first, then copy the skill directory into central repo.
-    // This avoids storing a full git repo (with .git) inside central repo and allows
-    // handling GitHub folder URLs (/tree/<branch>/<path>).
-    let (repo_dir, rev) = clone_to_cache(app, store, &parsed.clone_url, parsed.branch.as_deref())?;
+    if let Some(subpath) = &parsed.subpath {
+        // ── Subpath specified: clone to cache, then copy the subdirectory ──
+        let (repo_dir, rev) =
+            clone_to_cache(app, store, &parsed.clone_url, parsed.branch.as_deref())?;
 
-    let copy_src = if let Some(subpath) = &parsed.subpath {
-        let sub_src = repo_dir.join(subpath);
-        if !sub_src.exists() {
-            anyhow::bail!("subpath not found in repo: {:?}", sub_src);
-        }
-        sub_src
-    } else {
-        // Repo root URL: if it looks like a multi-skill repo, ask user to provide a folder URL.
-        let skills_dir = repo_dir.join("skills");
-        if skills_dir.exists() {
-            let mut count = 0usize;
-            if let Ok(rd) = std::fs::read_dir(&skills_dir) {
-                for entry in rd.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() && p.join("SKILL.md").exists() {
-                        count += 1;
-                    }
+        let copy_src = {
+            let sub_src = repo_dir.join(subpath);
+            if !sub_src.exists() {
+                anyhow::bail!("subpath not found in repo: {:?}", sub_src);
+            }
+            sub_src
+        };
+
+        copy_dir_recursive(&copy_src, &central_path)
+            .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
+
+        let now = now_ms();
+        let content_hash = compute_content_hash(&central_path);
+        let record = SkillRecord {
+            id: Uuid::new_v4().to_string(),
+            name,
+            source_type: "git".to_string(),
+            source_ref: Some(repo_url.to_string()),
+            source_revision: Some(rev),
+            central_path: central_path.to_string_lossy().to_string(),
+            content_hash: content_hash.clone(),
+            created_at: now,
+            updated_at: now,
+            last_sync_at: None,
+            last_seen_at: now,
+            status: "ok".to_string(),
+        };
+        store.upsert_skill(&record)?;
+
+        return Ok(InstallResult {
+            skill_id: record.id,
+            name: record.name,
+            central_path,
+            content_hash,
+        });
+    }
+
+    // ── No subpath: clone directly to central repo (keep .git) ──
+    // Check for multi-skill repos after cloning; if detected, clean up and bail.
+    let rev = clone_or_pull(&parsed.clone_url, &central_path, parsed.branch.as_deref())
+        .with_context(|| format!("clone {} into {:?}", parsed.clone_url, central_path))?;
+
+    let skills_dir = central_path.join("skills");
+    if skills_dir.exists() {
+        let mut count = 0usize;
+        if let Ok(rd) = std::fs::read_dir(&skills_dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.is_dir() && p.join("SKILL.md").exists() {
+                    count += 1;
                 }
             }
-            if count >= 2 {
-                anyhow::bail!(
-          "MULTI_SKILLS|该仓库包含多个 Skills，请复制具体 Skill 文件夹链接（例如 GitHub 的 /tree/<branch>/skills/<name>），再导入。"
-        );
-            }
         }
-        repo_dir.clone()
-    };
+        if count >= 2 {
+            // Clean up the cloned directory before bailing.
+            let _ = std::fs::remove_dir_all(&central_path);
+            anyhow::bail!(
+                "MULTI_SKILLS|{}", "该仓库包含多个 Skills，请复制具体 Skill 文件夹链接（例如 GitHub 的 /tree/<branch>/skills/<name>），再导入。"
+            );
+        }
+    }
 
-    copy_dir_recursive(&copy_src, &central_path)
-        .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
-
-    let revision = rev;
     let now = now_ms();
     let content_hash = compute_content_hash(&central_path);
 
     let record = SkillRecord {
         id: Uuid::new_v4().to_string(),
         name,
-        source_type: "git".to_string(),
+        source_type: "git-cloned".to_string(),
         source_ref: Some(repo_url.to_string()),
-        source_revision: Some(revision),
+        source_revision: Some(rev),
         central_path: central_path.to_string_lossy().to_string(),
         content_hash: content_hash.clone(),
         created_at: now,
@@ -312,6 +342,42 @@ fn derive_name_from_repo_url(repo_url: &str) -> String {
     }
 }
 
+/// Build a `source_ref` URL that encodes the subpath so that `parse_github_url`
+/// can reconstruct it during updates.
+///
+/// For GitHub clone URLs (https://github.com/owner/repo.git):
+///   - subpath "." → "https://github.com/owner/repo"
+///   - subpath "skills/foo" → "https://github.com/owner/repo/tree/<branch>/skills/foo"
+///
+/// For non-GitHub URLs:
+///   - Returns clone_url as-is (subpath ".")
+///   - Not currently supported with subpath (shouldn't happen in practice)
+fn build_source_ref_with_subpath(clone_url: &str, branch: Option<&str>, subpath: &str) -> String {
+    let gh_suffix = ".git";
+    let gh_prefix = "https://github.com/";
+
+    // For subpath ".", just return the repo URL (without .git suffix for cleanliness).
+    if subpath == "." {
+        if clone_url.starts_with(gh_prefix) {
+            return clone_url
+                .strip_suffix(gh_suffix)
+                .unwrap_or(clone_url)
+                .to_string();
+        }
+        return clone_url.to_string();
+    }
+
+    // For GitHub URLs, build /tree/<branch>/<subpath> format.
+    if clone_url.starts_with(gh_prefix) {
+        let base = clone_url.strip_suffix(gh_suffix).unwrap_or(clone_url);
+        let branch = branch.unwrap_or("main");
+        return format!("{}/tree/{}/{}", base, branch, subpath);
+    }
+
+    // Non-GitHub with subpath: just return clone_url (best effort).
+    clone_url.to_string()
+}
+
 fn compute_content_hash(path: &Path) -> Option<String> {
     if should_compute_content_hash() {
         hash_dir(path).ok()
@@ -359,7 +425,7 @@ pub fn check_skill_updates(store: &SkillStore) -> Vec<SkillUpdateStatus> {
 
     skills
         .into_iter()
-        .filter(|s| s.source_type == "git")
+        .filter(|s| s.source_type == "git" || s.source_type == "git-cloned")
         .map(|skill| {
             let repo_url = match skill.source_ref.as_deref() {
                 Some(url) => url,
@@ -442,15 +508,31 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
 
     let now = now_ms();
 
+    // For git-cloned, the central_path was updated in-place by git pull.
+    // For other types, use a staging dir for safe swap.
+    let needs_staging = record.source_type != "git-cloned";
+
     // Build new content in a sibling temp dir for safe swap.
     let staging_dir = central_parent.join(format!(".skills-hub-update-{}", Uuid::new_v4()));
-    if staging_dir.exists() {
+    if needs_staging && staging_dir.exists() {
         let _ = std::fs::remove_dir_all(&staging_dir);
     }
 
     let mut new_revision: Option<String> = None;
 
-    if record.source_type == "git" {
+    if record.source_type == "git-cloned" {
+        // ── Direct clone: just git pull in-place ──
+        let repo_url = record
+            .source_ref
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("missing source_ref for git-cloned skill"))?;
+        let parsed = parse_github_url(repo_url);
+
+        let rev = clone_or_pull(&parsed.clone_url, &central_path, parsed.branch.as_deref())
+            .with_context(|| format!("git pull {} in {:?}", parsed.clone_url, central_path))?;
+        new_revision = Some(rev);
+        // No staging/swap needed — pull updated the central path directly.
+    } else if record.source_type == "git" {
         let repo_url = record
             .source_ref
             .as_deref()
@@ -500,16 +582,19 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
         anyhow::bail!("unsupported source_type for update: {}", record.source_type);
     }
 
-    // Swap: remove old dir and rename staging into place (best effort).
-    std::fs::remove_dir_all(&central_path)
-        .with_context(|| format!("failed to remove old central dir {:?}", central_path))?;
-    if let Err(err) = std::fs::rename(&staging_dir, &central_path) {
-        // Fallback for cross-device rename: copy then delete staging.
-        copy_dir_recursive(&staging_dir, &central_path)
-            .with_context(|| format!("fallback copy {:?} -> {:?}", staging_dir, central_path))?;
-        let _ = std::fs::remove_dir_all(&staging_dir);
-        // Still surface original rename error in logs for troubleshooting.
-        eprintln!("[update] rename warning: {}", err);
+    // Swap: remove old dir and rename staging into place (skip for git-cloned).
+    if needs_staging {
+        std::fs::remove_dir_all(&central_path)
+            .with_context(|| format!("failed to remove old central dir {:?}", central_path))?;
+        if let Err(err) = std::fs::rename(&staging_dir, &central_path) {
+            // Fallback for cross-device rename: copy then delete staging.
+            copy_dir_recursive(&staging_dir, &central_path).with_context(|| {
+                format!("fallback copy {:?} -> {:?}", staging_dir, central_path)
+            })?;
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            // Still surface original rename error in logs for troubleshooting.
+            eprintln!("[update] rename warning: {}", err);
+        }
     }
 
     let content_hash = compute_content_hash(&central_path);
@@ -833,7 +918,11 @@ pub fn install_git_skill_from_selection<R: tauri::Runtime>(
         id: Uuid::new_v4().to_string(),
         name: display_name,
         source_type: "git".to_string(),
-        source_ref: Some(repo_url.to_string()),
+        source_ref: Some(build_source_ref_with_subpath(
+            &parsed.clone_url,
+            parsed.branch.as_deref(),
+            subpath,
+        )),
         source_revision: Some(revision),
         central_path: central_path.to_string_lossy().to_string(),
         content_hash: content_hash.clone(),

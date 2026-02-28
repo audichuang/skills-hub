@@ -132,9 +132,16 @@ export type RemoteSyncResultDto = {
   syncedSkills: string[]
 }
 
+export type RemoteToolLinkDto = {
+  toolKey: string
+  skillName: string
+  linked: boolean
+}
+
 export type RemoteSkillsDto = {
   hostId: string
   skills: string[]
+  toolLinks: RemoteToolLinkDto[]
 }
 
 export type CustomTarget = {
