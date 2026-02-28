@@ -2,7 +2,7 @@ import { memo, useState } from 'react'
 import { ArrowUpCircle, Box, Cloud, Copy, Folder, Github, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TFunction } from 'i18next'
-import type { ManagedSkill, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, ToolOption } from './types'
+import type { CustomTarget, ManagedSkill, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, ToolOption } from './types'
 
 type GithubInfo = {
   label: string
@@ -26,6 +26,8 @@ type SkillCardProps = {
   remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
   onSyncToRemote: (skill: ManagedSkill, hostId: string) => void
   remoteSyncing: string | null
+  customTargets: CustomTarget[]
+  onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
   t: TFunction
 }
 
@@ -46,6 +48,8 @@ const SkillCard = ({
   remoteToolStatuses,
   onSyncToRemote,
   remoteSyncing,
+  customTargets,
+  onToggleCustomTarget,
   t,
 }: SkillCardProps) => {
   const [showRemoteMenu, setShowRemoteMenu] = useState(false)
@@ -163,11 +167,12 @@ const SkillCard = ({
           </div>
         </div>
 
-        {/* ── VM tool matrices ───────────────────────────────── */}
+        {/* ── VM sections (IDE tools + custom targets merged per host) ── */}
         {syncedHosts.map((host) => {
           const hostTools = remoteToolStatuses[host.id] ?? []
           const installedRemoteTools = hostTools.filter((t) => t.installed)
-          if (installedRemoteTools.length === 0) return null
+          const hostCTs = customTargets.filter((ct) => ct.remote_host_id === host.id)
+          if (installedRemoteTools.length === 0 && hostCTs.length === 0) return null
           return (
             <div key={host.id} className="tool-env-section">
               <div className="tool-env-label remote" title={`${host.username}@${host.host}`}>
@@ -183,10 +188,98 @@ const SkillCard = ({
                     {tool.label}
                   </span>
                 ))}
+                {hostCTs.map((ct) => {
+                  const synced = skill.targets.some((tgt) => tgt.tool === `custom:${ct.id}`)
+                  return (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      className={`tool-pill ${synced ? 'active remote-tool' : 'inactive'}`}
+                      title={ct.path}
+                      onClick={(e) => { e.stopPropagation(); onToggleCustomTarget(skill, ct.id) }}
+                    >
+                      {synced ? <span className="status-badge remote" /> : null}
+                      <Folder size={11} />
+                      {ct.label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )
         })}
+
+        {/* ── Hosts with ONLY custom targets (not in syncedHosts) ─── */}
+        {(() => {
+          const syncedHostIds = new Set(syncedHosts.map((h) => h.id))
+          const remoteCTsByHost = new Map<string, { host: RemoteHost; targets: CustomTarget[] }>()
+          for (const ct of customTargets) {
+            if (!ct.remote_host_id || syncedHostIds.has(ct.remote_host_id)) continue
+            const existing = remoteCTsByHost.get(ct.remote_host_id)
+            const host = remoteHosts.find((h) => h.id === ct.remote_host_id)
+            if (existing) {
+              existing.targets.push(ct)
+            } else if (host) {
+              remoteCTsByHost.set(ct.remote_host_id, { host, targets: [ct] })
+            }
+          }
+          return [...remoteCTsByHost.values()].map(({ host, targets: cts }) => (
+            <div key={host.id} className="tool-env-section">
+              <div className="tool-env-label remote" title={`${host.username}@${host.host}`}>
+                {host.label}
+              </div>
+              <div className="tool-matrix">
+                {cts.map((ct) => {
+                  const synced = skill.targets.some((tgt) => tgt.tool === `custom:${ct.id}`)
+                  return (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      className={`tool-pill ${synced ? 'active remote-tool' : 'inactive'}`}
+                      title={ct.path}
+                      onClick={(e) => { e.stopPropagation(); onToggleCustomTarget(skill, ct.id) }}
+                    >
+                      {synced ? <span className="status-badge remote" /> : null}
+                      <Folder size={11} />
+                      {ct.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))
+        })()}
+
+        {/* ── Local custom targets ─────────────────────────────── */}
+        {(() => {
+          const localCTs = customTargets.filter((ct) => !ct.remote_host_id)
+          if (localCTs.length === 0) return null
+          return (
+            <div className="tool-env-section">
+              <div className="tool-env-label local">
+                <Folder size={11} />
+                {t('customTarget.titleShort')}
+              </div>
+              <div className="tool-matrix">
+                {localCTs.map((ct) => {
+                  const synced = skill.targets.some((tgt) => tgt.tool === `custom:${ct.id}`)
+                  return (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      className={`tool-pill ${synced ? 'active' : 'inactive'}`}
+                      title={ct.path}
+                      onClick={(e) => { e.stopPropagation(); onToggleCustomTarget(skill, ct.id) }}
+                    >
+                      {synced ? <span className="status-badge" /> : null}
+                      {ct.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
       </div>
       <div className="skill-actions-col" onClick={(e) => e.stopPropagation()}>
         {/* Sync to Remote button — show only if there are unsync'd hosts */}

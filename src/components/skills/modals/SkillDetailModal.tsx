@@ -1,9 +1,9 @@
 import { memo, useEffect, useState } from 'react'
-import { Box, Copy, ExternalLink, Folder, Github, RefreshCw, Trash2 } from 'lucide-react'
+import { Box, Cloud, Copy, ExternalLink, FileText, Folder, Github, Monitor, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type { TFunction } from 'i18next'
-import type { ManagedSkill, ToolOption } from '../types'
+import type { CustomTarget, ManagedSkill, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, ToolOption } from '../types'
 
 type ClawHubDetail = {
     slug: string
@@ -28,6 +28,11 @@ type SkillDetailModalProps = {
     onRequestClose: () => void
     invokeTauri: <T, >(command: string, args?: Record<string, unknown>) => Promise<T>
     t: TFunction
+    customTargets: CustomTarget[]
+    remoteHosts: RemoteHost[]
+    remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
+    remoteSkillStatuses: Record<string, RemoteSkillsDto>
+    onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
 }
 
 const SkillDetailModal = ({
@@ -41,9 +46,16 @@ const SkillDetailModal = ({
     onRequestClose,
     invokeTauri,
     t,
+    customTargets,
+    remoteHosts,
+    remoteToolStatuses,
+    remoteSkillStatuses,
+    onToggleCustomTarget,
 }: SkillDetailModalProps) => {
     const [clawHubDetail, setClawHubDetail] = useState<ClawHubDetail | null>(null)
     const [detailLoading, setDetailLoading] = useState(false)
+    const [skillContent, setSkillContent] = useState<string | null>(null)
+    const [skillContentLoading, setSkillContentLoading] = useState(false)
 
     useEffect(() => {
         if (!skill || skill.source_type !== 'clawhub') {
@@ -68,7 +80,35 @@ const SkillDetailModal = ({
         return () => { cancelled = true }
     }, [skill, invokeTauri])
 
+    // Load SKILL.md content
+    useEffect(() => {
+        if (!skill) {
+            setSkillContent(null)
+            return
+        }
+        let cancelled = false
+        const load = async () => {
+            setSkillContentLoading(true)
+            try {
+                const content = await invokeTauri<string>('read_skill_content', { skillId: skill.id })
+                if (!cancelled) setSkillContent(content)
+            } catch {
+                if (!cancelled) setSkillContent(null)
+            } finally {
+                if (!cancelled) setSkillContentLoading(false)
+            }
+        }
+        void load()
+        return () => { cancelled = true }
+    }, [skill, invokeTauri])
+
     if (!skill) return null
+
+    /** Only show mode label for non-symlink modes (e.g. copy) */
+    const displayMode = (mode: string): string | null => {
+        const m = (mode === 'remote' || mode === 'sftp') ? 'symlink' : mode
+        return m === 'symlink' ? null : m
+    }
 
     const isGit = skill.source_type.toLowerCase().includes('git')
     const isClawHub = skill.source_type === 'clawhub'
@@ -204,29 +244,118 @@ const SkillDetailModal = ({
                         </div>
                     </div>
 
-                    {/* Sync targets */}
+                    {/* Sync targets — tools + custom dirs merged per host */}
                     <div className="detail-section">
                         <div className="detail-meta-label">{t('detailSyncStatus')}</div>
-                        <div className="detail-targets">
-                            {installedTools.map((tool) => {
-                                const target = skill.targets.find((t) => t.tool === tool.id)
-                                const synced = Boolean(target)
-                                return (
-                                    <button
-                                        key={tool.id}
-                                        type="button"
-                                        className={`tool-pill ${synced ? 'active' : 'inactive'}`}
-                                        onClick={() => void onToggleTool(skill, tool.id)}
-                                    >
-                                        {synced ? <span className="status-badge" /> : null}
-                                        {tool.label}
-                                        {target && (
-                                            <span className="detail-target-mode">({target.mode})</span>
-                                        )}
-                                    </button>
-                                )
-                            })}
+                        {/* Local tools + local custom targets */}
+                        <div className="tool-env-section">
+                            <div className="tool-env-label local">
+                                <Monitor size={11} />
+                                {t('remote.localBadge')}
+                            </div>
+                            <div className="detail-targets">
+                                {installedTools.map((tool) => {
+                                    const target = skill.targets.find((t) => t.tool === tool.id)
+                                    const synced = Boolean(target)
+                                    return (
+                                        <button
+                                            key={tool.id}
+                                            type="button"
+                                            className={`tool-pill ${synced ? 'active' : 'inactive'}`}
+                                            onClick={() => void onToggleTool(skill, tool.id)}
+                                        >
+                                            {synced ? <span className="status-badge" /> : null}
+                                            {tool.label}
+                                            {target && (() => { const m = displayMode(target.mode); return m ? <span className="detail-target-mode">({m})</span> : null })()}
+                                        </button>
+                                    )
+                                })}
+                                {customTargets.filter((ct) => !ct.remote_host_id).map((ct) => {
+                                    const toolKey = `custom:${ct.id}`
+                                    const target = skill.targets.find((t) => t.tool === toolKey)
+                                    const synced = Boolean(target)
+                                    return (
+                                        <button
+                                            key={ct.id}
+                                            type="button"
+                                            className={`tool-pill ${synced ? 'active' : 'inactive'}`}
+                                            onClick={() => void onToggleCustomTarget(skill, ct.id)}
+                                            title={ct.path}
+                                        >
+                                            {synced ? <span className="status-badge" /> : null}
+                                            <Folder size={12} />
+                                            {ct.label}
+                                            {target && (() => { const m = displayMode(target.mode); return m ? <span className="detail-target-mode">({m})</span> : null })()}
+                                        </button>
+                                    )
+                                })}
+                            </div>
                         </div>
+                        {/* VM tools + VM custom targets */}
+                        {remoteHosts.filter((host) => {
+                            const status = remoteSkillStatuses[host.id]
+                            const hasSkill = status?.skills?.includes(skill.name)
+                            const hasCTs = customTargets.some((ct) => ct.remote_host_id === host.id)
+                            return hasSkill || hasCTs
+                        }).map((host) => {
+                            const hostTools = remoteToolStatuses[host.id] ?? []
+                            const installedRemoteTools = hostTools.filter((t) => t.installed)
+                            const hostCTs = customTargets.filter((ct) => ct.remote_host_id === host.id)
+                            if (installedRemoteTools.length === 0 && hostCTs.length === 0) return null
+                            return (
+                                <div key={host.id} className="tool-env-section">
+                                    <div className="tool-env-label remote" title={`${host.username}@${host.host}`}>
+                                        <Cloud size={11} />
+                                        {host.label}
+                                    </div>
+                                    <div className="detail-targets">
+                                        {installedRemoteTools.map((tool) => (
+                                            <span
+                                                key={`remote-${host.id}-${tool.key}`}
+                                                className="tool-pill active remote-tool"
+                                            >
+                                                <span className="status-badge remote" />
+                                                {tool.label}
+                                            </span>
+                                        ))}
+                                        {hostCTs.map((ct) => {
+                                            const toolKey = `custom:${ct.id}`
+                                            const target = skill.targets.find((t) => t.tool === toolKey)
+                                            const synced = Boolean(target)
+                                            return (
+                                                <button
+                                                    key={ct.id}
+                                                    type="button"
+                                                    className={`tool-pill ${synced ? 'active remote-tool' : 'inactive'}`}
+                                                    onClick={() => void onToggleCustomTarget(skill, ct.id)}
+                                                    title={ct.path}
+                                                >
+                                                    {synced ? <span className="status-badge remote" /> : null}
+                                                    <Folder size={12} />
+                                                    {ct.label}
+                                                    {target && (() => { const m = displayMode(target.mode); return m ? <span className="detail-target-mode">({m})</span> : null })()}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    {/* SKILL.md preview */}
+                    <div className="detail-section">
+                        <div className="detail-meta-label">
+                            <FileText size={14} />
+                            SKILL.md
+                        </div>
+                        {skillContentLoading ? (
+                            <div className="detail-meta-item" style={{ opacity: 0.5 }}>{t('loadingDetail')}</div>
+                        ) : skillContent ? (
+                            <pre className="skill-preview-content">{skillContent}</pre>
+                        ) : (
+                            <div className="detail-meta-item" style={{ opacity: 0.5 }}>—</div>
+                        )}
                     </div>
                 </div>
 

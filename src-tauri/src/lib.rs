@@ -99,7 +99,14 @@ pub fn run() {
             commands::sync_all_skills_to_remote,
             commands::sync_remote_skill_to_tool,
             commands::list_remote_skills,
-            commands::sync_selected_skills_to_remote
+            commands::sync_selected_skills_to_remote,
+            commands::list_custom_targets,
+            commands::add_custom_target,
+            commands::delete_custom_target,
+            commands::sync_skill_to_custom_target,
+            commands::unsync_skill_from_custom_target,
+            commands::browse_remote_directory,
+            commands::read_skill_content
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

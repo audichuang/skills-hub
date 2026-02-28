@@ -8,7 +8,7 @@ const DB_FILE_NAME: &str = "skills_hub.db";
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.tauri.dev", "com.tauri.dev.skillshub"];
 
 // Schema versioning: bump when making changes and add a migration step.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 4;
 
 // Minimal schema for MVP: skills, skill_targets, settings, discovered_skills(optional).
 const SCHEMA_V1: &str = r#"
@@ -76,6 +76,20 @@ CREATE TABLE IF NOT EXISTS remote_hosts (
 );
 "#;
 
+const SCHEMA_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS custom_targets (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    path TEXT NOT NULL UNIQUE,
+    remote_host_id TEXT DEFAULT NULL,
+    created_at INTEGER NOT NULL
+);
+"#;
+
+const SCHEMA_V4: &str = r#"
+ALTER TABLE custom_targets ADD COLUMN remote_host_id TEXT DEFAULT NULL;
+"#;
+
 #[derive(Clone, Debug)]
 pub struct SkillStore {
     db_path: PathBuf,
@@ -124,6 +138,15 @@ pub struct RemoteHostRecord {
     pub status: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct CustomTargetRecord {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    pub remote_host_id: Option<String>,
+    pub created_at: i64,
+}
+
 impl SkillStore {
     pub fn new(db_path: PathBuf) -> Self {
         Self { db_path }
@@ -142,10 +165,18 @@ impl SkillStore {
             if user_version == 0 {
                 conn.execute_batch(SCHEMA_V1)?;
                 conn.execute_batch(SCHEMA_V2)?;
+                conn.execute_batch(SCHEMA_V3)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version == 1 {
-                // Migrate V1 -> V2: add remote_hosts table
                 conn.execute_batch(SCHEMA_V2)?;
+                conn.execute_batch(SCHEMA_V3)?;
+                conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            } else if user_version == 2 {
+                conn.execute_batch(SCHEMA_V3)?;
+                conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            } else if user_version == 3 {
+                // Migrate V3 -> V4: add remote_host_id to custom_targets
+                conn.execute_batch(SCHEMA_V4)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version > SCHEMA_VERSION {
                 anyhow::bail!(
@@ -409,6 +440,89 @@ impl SkillStore {
             conn.execute(
                 "DELETE FROM skill_targets WHERE skill_id = ?1 AND tool = ?2",
                 params![skill_id, tool],
+            )?;
+            Ok(())
+        })
+    }
+
+    // ── Custom Target CRUD ──────────────────────────────────────────────
+
+    pub fn upsert_custom_target(&self, record: &CustomTargetRecord) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO custom_targets (id, label, path, remote_host_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET
+                     label = excluded.label,
+                     path = excluded.path,
+                     remote_host_id = excluded.remote_host_id",
+                params![
+                    record.id,
+                    record.label,
+                    record.path,
+                    record.remote_host_id,
+                    record.created_at
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_custom_targets(&self) -> Result<Vec<CustomTargetRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, label, path, remote_host_id, created_at
+                 FROM custom_targets
+                 ORDER BY label ASC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(CustomTargetRecord {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    path: row.get(2)?,
+                    remote_host_id: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?;
+            let mut items = Vec::new();
+            for row in rows {
+                items.push(row?);
+            }
+            Ok(items)
+        })
+    }
+
+    pub fn get_custom_target_by_id(&self, id: &str) -> Result<Option<CustomTargetRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, label, path, remote_host_id, created_at
+                 FROM custom_targets
+                 WHERE id = ?1
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query(params![id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(CustomTargetRecord {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    path: row.get(2)?,
+                    remote_host_id: row.get(3)?,
+                    created_at: row.get(4)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    pub fn delete_custom_target(&self, id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM custom_targets WHERE id = ?1", params![id])?;
+            // Also clean up any skill_targets that reference this custom target.
+            let tool_key = format!("custom:{}", id);
+            conn.execute(
+                "DELETE FROM skill_targets WHERE tool = ?1",
+                params![tool_key],
             )?;
             Ok(())
         })

@@ -136,3 +136,11 @@ export type RemoteSkillsDto = {
   hostId: string
   skills: string[]
 }
+
+export type CustomTarget = {
+  id: string
+  label: string
+  path: string
+  remote_host_id?: string | null
+  created_at: number
+}

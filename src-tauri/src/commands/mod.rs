@@ -19,7 +19,9 @@ use crate::core::installer::{
 };
 use crate::core::onboarding::{build_onboarding_plan, OnboardingPlan};
 use crate::core::remote_sync;
-use crate::core::skill_store::{RemoteHostRecord, SkillStore, SkillTargetRecord};
+use crate::core::skill_store::{
+    CustomTargetRecord, RemoteHostRecord, SkillStore, SkillTargetRecord,
+};
 use crate::core::sync_engine::{
     copy_dir_recursive, sync_dir_for_tool_with_overwrite, sync_dir_hybrid, SyncMode,
 };
@@ -799,6 +801,31 @@ fn get_managed_skills_impl(store: &SkillStore) -> Result<Vec<ManagedSkillDto>, S
         .collect())
 }
 
+// ── Skill content preview ───────────────────────────────────────────
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn read_skill_content(
+    store: State<'_, SkillStore>,
+    skillId: String,
+) -> Result<String, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let skill = store
+            .get_skill_by_id(&skillId)?
+            .ok_or_else(|| anyhow::anyhow!("skill not found"))?;
+        let path = std::path::PathBuf::from(&skill.central_path).join("SKILL.md");
+        if !path.exists() {
+            anyhow::bail!("SKILL.md not found");
+        }
+        let content = std::fs::read_to_string(&path).with_context(|| format!("read {:?}", path))?;
+        Ok::<_, anyhow::Error>(content)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
 // ── ClawHub commands ────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1294,6 +1321,361 @@ pub async fn sync_selected_skills_to_remote(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+// ── Custom Target Commands ──────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CustomTargetDto {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+    #[serde(rename = "remote_host_id")]
+    pub remote_host_id: Option<String>,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub async fn list_custom_targets(
+    store: State<'_, SkillStore>,
+) -> Result<Vec<CustomTargetDto>, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let targets = store.list_custom_targets()?;
+        Ok::<_, anyhow::Error>(
+            targets
+                .into_iter()
+                .map(|t| CustomTargetDto {
+                    id: t.id,
+                    label: t.label,
+                    path: t.path,
+                    remote_host_id: t.remote_host_id,
+                    created_at: t.created_at,
+                })
+                .collect(),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn add_custom_target(
+    store: State<'_, SkillStore>,
+    label: String,
+    path: String,
+    remoteHostId: Option<String>,
+) -> Result<CustomTargetDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let canonical = if remoteHostId.is_some() {
+            // Remote: path is a remote path, just validate it looks absolute-ish
+            if !path.starts_with('/') {
+                anyhow::bail!("remote custom target path must be absolute (start with /)");
+            }
+            // Verify the remote host exists
+            if let Some(ref rh_id) = remoteHostId {
+                store
+                    .get_remote_host_by_id(rh_id)?
+                    .ok_or_else(|| anyhow::anyhow!("remote host not found"))?;
+            }
+            path.clone()
+        } else {
+            // Local: expand ~ and ensure directory exists
+            let expanded = expand_home_path(&path)?;
+            if !expanded.is_absolute() {
+                anyhow::bail!("custom target path must be absolute");
+            }
+            std::fs::create_dir_all(&expanded)
+                .with_context(|| format!("failed to create directory {:?}", expanded))?;
+            expanded.to_string_lossy().to_string()
+        };
+
+        let id = Uuid::new_v4().to_string();
+        let record = CustomTargetRecord {
+            id: id.clone(),
+            label: label.clone(),
+            path: canonical.clone(),
+            remote_host_id: remoteHostId.clone(),
+            created_at: now_ms(),
+        };
+        store.upsert_custom_target(&record)?;
+        Ok::<_, anyhow::Error>(CustomTargetDto {
+            id,
+            label,
+            path: canonical,
+            remote_host_id: remoteHostId,
+            created_at: record.created_at,
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn delete_custom_target(
+    store: State<'_, SkillStore>,
+    targetId: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let tool_key = format!("custom:{}", targetId);
+        // Remove filesystem targets for all skills synced to this custom target.
+        let all_skills = store.list_skills()?;
+        for skill in &all_skills {
+            if let Some(target) = store.get_skill_target(&skill.id, &tool_key)? {
+                let _ = remove_path_any(&target.target_path);
+            }
+        }
+        store.delete_custom_target(&targetId)?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn sync_skill_to_custom_target(
+    store: State<'_, SkillStore>,
+    sourcePath: String,
+    skillId: String,
+    customTargetId: String,
+    name: String,
+    overwrite: Option<bool>,
+) -> Result<SyncResultDto, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let ct = store
+            .get_custom_target_by_id(&customTargetId)?
+            .ok_or_else(|| anyhow::anyhow!("custom target not found"))?;
+
+        let tool_key = format!("custom:{}", customTargetId);
+
+        if let Some(ref remote_host_id) = ct.remote_host_id {
+            // ── Remote sync via SSH (symlink from central) ──────────
+            let host = store
+                .get_remote_host_by_id(remote_host_id)?
+                .ok_or_else(|| anyhow::anyhow!("remote host not found"))?;
+
+            let sess = crate::core::remote_sync::create_ssh_session(
+                &host.host,
+                host.port as u16,
+                &host.username,
+                &host.auth_method,
+                host.key_path.as_deref(),
+            )?;
+
+            let local_path = std::path::Path::new(&sourcePath);
+
+            // 1. Ensure skill exists in VM central (~/.skillshub/<name>/)
+            let home = crate::core::remote_sync::ssh_exec(&sess, "echo $HOME")?;
+            let home = home.trim();
+            let abs_central = format!("{}/.skillshub/{}", home, name);
+            crate::core::remote_sync::ssh_exec(&sess, &format!("mkdir -p '{}'", abs_central))?;
+            crate::core::remote_sync::sftp_upload_dir(&sess, local_path, &abs_central)?;
+
+            // 2. Symlink from central to custom target path
+            let remote_dest = format!("{}/{}", ct.path.trim_end_matches('/'), name);
+            crate::core::remote_sync::create_remote_symlink(&sess, &abs_central, &remote_dest)?;
+
+            let record = SkillTargetRecord {
+                id: Uuid::new_v4().to_string(),
+                skill_id: skillId.clone(),
+                tool: tool_key,
+                target_path: remote_dest.clone(),
+                mode: "symlink".to_string(),
+                status: "ok".to_string(),
+                last_error: None,
+                synced_at: Some(now_ms()),
+            };
+            store.upsert_skill_target(&record)?;
+
+            Ok::<_, anyhow::Error>(SyncResultDto {
+                mode_used: "symlink".to_string(),
+                target_path: remote_dest,
+            })
+        } else {
+            // ── Local sync ──────────────────────────────────────────
+            let target_root = std::path::PathBuf::from(&ct.path);
+            let target = target_root.join(&name);
+            let overwrite = overwrite.unwrap_or(false);
+            let result = crate::core::sync_engine::sync_dir_hybrid_with_overwrite(
+                sourcePath.as_ref(),
+                &target,
+                overwrite,
+            )
+            .map_err(|err| {
+                let msg = err.to_string();
+                if msg.contains("target already exists") {
+                    anyhow::anyhow!("TARGET_EXISTS|{}", target.to_string_lossy())
+                } else {
+                    anyhow::anyhow!(msg)
+                }
+            })?;
+
+            let record = SkillTargetRecord {
+                id: Uuid::new_v4().to_string(),
+                skill_id: skillId.clone(),
+                tool: tool_key,
+                target_path: result.target_path.to_string_lossy().to_string(),
+                mode: match result.mode_used {
+                    SyncMode::Auto => "auto",
+                    SyncMode::Symlink => "symlink",
+                    SyncMode::Junction => "junction",
+                    SyncMode::Copy => "copy",
+                }
+                .to_string(),
+                status: "ok".to_string(),
+                last_error: None,
+                synced_at: Some(now_ms()),
+            };
+            store.upsert_skill_target(&record)?;
+
+            Ok::<_, anyhow::Error>(SyncResultDto {
+                mode_used: match result.mode_used {
+                    SyncMode::Auto => "auto",
+                    SyncMode::Symlink => "symlink",
+                    SyncMode::Junction => "junction",
+                    SyncMode::Copy => "copy",
+                }
+                .to_string(),
+                target_path: result.target_path.to_string_lossy().to_string(),
+            })
+        }
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn unsync_skill_from_custom_target(
+    store: State<'_, SkillStore>,
+    skillId: String,
+    customTargetId: String,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let ct = store.get_custom_target_by_id(&customTargetId)?;
+        let tool_key = format!("custom:{}", customTargetId);
+
+        if let Some(target) = store.get_skill_target(&skillId, &tool_key)? {
+            if let Some(ct) = ct {
+                if let Some(ref remote_host_id) = ct.remote_host_id {
+                    // ── Remote: rm via SSH ───────────────────────────
+                    let host = store
+                        .get_remote_host_by_id(remote_host_id)?
+                        .ok_or_else(|| anyhow::anyhow!("remote host not found"))?;
+                    let sess = crate::core::remote_sync::create_ssh_session(
+                        &host.host,
+                        host.port as u16,
+                        &host.username,
+                        &host.auth_method,
+                        host.key_path.as_deref(),
+                    )?;
+                    crate::core::remote_sync::ssh_exec(
+                        &sess,
+                        &format!("rm -rf '{}'", target.target_path),
+                    )?;
+                } else {
+                    // ── Local: remove path ───────────────────────────
+                    remove_path_any(&target.target_path).map_err(anyhow::Error::msg)?;
+                }
+            } else {
+                // custom target was deleted but skill_target remains; just clean up local
+                let _ = remove_path_any(&target.target_path);
+            }
+            store.delete_skill_target(&skillId, &tool_key)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
+}
+
+// ── Remote Directory Browsing ───────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteDirEntry {
+    pub name: String,
+    pub isDir: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[allow(non_snake_case)]
+pub struct RemoteBrowseResult {
+    pub currentPath: String,
+    pub entries: Vec<RemoteDirEntry>,
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn browse_remote_directory(
+    store: State<'_, SkillStore>,
+    hostId: String,
+    path: Option<String>,
+) -> Result<RemoteBrowseResult, String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = store
+            .get_remote_host_by_id(&hostId)?
+            .ok_or_else(|| anyhow::anyhow!("remote host not found"))?;
+
+        let sess = crate::core::remote_sync::create_ssh_session(
+            &host.host,
+            host.port as u16,
+            &host.username,
+            &host.auth_method,
+            host.key_path.as_deref(),
+        )?;
+
+        // Resolve path: default to ~ (home), resolve ~ prefix
+        let raw_path = path.unwrap_or_else(|| "~".to_string());
+        let resolved = if raw_path == "~" || raw_path.starts_with("~/") {
+            let home = crate::core::remote_sync::ssh_exec(&sess, "echo $HOME")?;
+            let home = home.trim();
+            if raw_path == "~" {
+                home.to_string()
+            } else {
+                format!("{}{}", home, &raw_path[1..])
+            }
+        } else {
+            raw_path.clone()
+        };
+
+        // List directories only, one per line
+        let cmd = format!(
+            "find '{}' -maxdepth 1 -mindepth 1 -type d -printf '%f\\n' 2>/dev/null | sort",
+            resolved
+        );
+        let output = crate::core::remote_sync::ssh_exec(&sess, &cmd).unwrap_or_default();
+
+        let entries: Vec<RemoteDirEntry> = output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|name| RemoteDirEntry {
+                name: name.to_string(),
+                isDir: true,
+            })
+            .collect();
+
+        Ok::<_, anyhow::Error>(RemoteBrowseResult {
+            currentPath: resolved,
+            entries,
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(format_anyhow_error)
 }
 
 #[cfg(test)]

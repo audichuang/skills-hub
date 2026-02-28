@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { MessageCircle } from 'lucide-react'
 import type { TFunction } from 'i18next'
-import type { ManagedSkill, OnboardingPlan, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, SkillUpdateStatus, ToolOption } from './types'
+import type { CustomTarget, ManagedSkill, OnboardingPlan, RemoteHost, RemoteSkillsDto, RemoteToolInfoDto, SkillUpdateStatus, ToolOption } from './types'
 import SkillCard from './SkillCard'
 
 type GithubInfo = {
@@ -28,6 +28,8 @@ type SkillsListProps = {
   remoteToolStatuses: Record<string, RemoteToolInfoDto[]>
   onSyncToRemote: (skill: ManagedSkill, hostId: string) => void
   remoteSyncing: string | null
+  customTargets: CustomTarget[]
+  onToggleCustomTarget: (skill: ManagedSkill, customTargetId: string) => void
   t: TFunction
 }
 
@@ -50,6 +52,8 @@ const SkillsList = ({
   remoteToolStatuses,
   onSyncToRemote,
   remoteSyncing,
+  customTargets,
+  onToggleCustomTarget,
   t,
 }: SkillsListProps) => {
   return (
@@ -101,6 +105,8 @@ const SkillsList = ({
               remoteToolStatuses={remoteToolStatuses}
               onSyncToRemote={onSyncToRemote}
               remoteSyncing={remoteSyncing}
+              customTargets={customTargets}
+              onToggleCustomTarget={onToggleCustomTarget}
               t={t}
             />
           ))}

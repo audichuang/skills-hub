@@ -184,3 +184,81 @@ fn error_context_includes_db_path() {
     let msg = format!("{:#}", err);
     assert!(msg.contains("failed to open db at"), "{msg}");
 }
+
+#[test]
+fn custom_targets_crud() {
+    use crate::core::skill_store::CustomTargetRecord;
+    let (_dir, store) = make_store();
+
+    let ct = CustomTargetRecord {
+        id: "ct1".to_string(),
+        label: "My Project".to_string(),
+        path: "/tmp/my-project/skills".to_string(),
+        remote_host_id: None,
+        created_at: 100,
+    };
+    store.upsert_custom_target(&ct).unwrap();
+
+    let list = store.list_custom_targets().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].label, "My Project");
+
+    let got = store.get_custom_target_by_id("ct1").unwrap().unwrap();
+    assert_eq!(got.path, "/tmp/my-project/skills");
+
+    // Update via upsert
+    let mut ct2 = ct.clone();
+    ct2.label = "Renamed".to_string();
+    store.upsert_custom_target(&ct2).unwrap();
+    assert_eq!(
+        store.get_custom_target_by_id("ct1").unwrap().unwrap().label,
+        "Renamed"
+    );
+
+    // Delete
+    store.delete_custom_target("ct1").unwrap();
+    assert!(store.get_custom_target_by_id("ct1").unwrap().is_none());
+    assert_eq!(store.list_custom_targets().unwrap().len(), 0);
+}
+
+#[test]
+fn delete_custom_target_cascades_skill_targets() {
+    use crate::core::skill_store::CustomTargetRecord;
+    let (_dir, store) = make_store();
+
+    let skill = make_skill("s1", "S1", "/central/s1", 1);
+    store.upsert_skill(&skill).unwrap();
+
+    let ct = CustomTargetRecord {
+        id: "ct1".to_string(),
+        label: "Test Dir".to_string(),
+        path: "/tmp/test-dir".to_string(),
+        remote_host_id: None,
+        created_at: 100,
+    };
+    store.upsert_custom_target(&ct).unwrap();
+
+    // Add a skill_target with custom: tool key
+    let target = SkillTargetRecord {
+        id: "t1".to_string(),
+        skill_id: "s1".to_string(),
+        tool: "custom:ct1".to_string(),
+        target_path: "/tmp/test-dir/S1".to_string(),
+        mode: "symlink".to_string(),
+        status: "ok".to_string(),
+        last_error: None,
+        synced_at: None,
+    };
+    store.upsert_skill_target(&target).unwrap();
+    assert!(store
+        .get_skill_target("s1", "custom:ct1")
+        .unwrap()
+        .is_some());
+
+    // Deleting custom target should cascade to skill_targets
+    store.delete_custom_target("ct1").unwrap();
+    assert!(store
+        .get_skill_target("s1", "custom:ct1")
+        .unwrap()
+        .is_none());
+}

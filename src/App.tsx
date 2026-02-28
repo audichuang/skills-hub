@@ -20,6 +20,7 @@ import SettingsModal from './components/skills/modals/SettingsModal'
 import SkillDetailModal from './components/skills/modals/SkillDetailModal'
 import type {
   ClawHubSkill,
+  CustomTarget,
   GitSkillCandidate,
   InstallResultDto,
   LocalSkillCandidate,
@@ -102,6 +103,7 @@ function App() {
   const [remoteSkillStatuses, setRemoteSkillStatuses] = useState<Record<string, RemoteSkillsDto>>({})
   const [remoteToolStatuses, setRemoteToolStatuses] = useState<Record<string, RemoteToolInfoDto[]>>({})
   const [remoteSyncing, setRemoteSyncing] = useState<string | null>(null)
+  const [customTargets, setCustomTargets] = useState<CustomTarget[]>([])
 
   const isTauri =
     typeof window !== 'undefined' &&
@@ -265,6 +267,22 @@ function App() {
       loadManagedSkills()
     }
   }, [isTauri, loadManagedSkills])
+
+  const loadCustomTargets = useCallback(async () => {
+    if (!isTauri) return
+    try {
+      const targets = await invokeTauri<CustomTarget[]>('list_custom_targets')
+      setCustomTargets(targets)
+    } catch (err) {
+      console.warn('Failed to load custom targets:', err)
+    }
+  }, [isTauri, invokeTauri])
+
+  useEffect(() => {
+    if (isTauri) {
+      void loadCustomTargets()
+    }
+  }, [isTauri, loadCustomTargets])
 
   // Check for skill updates after managed skills are loaded
   useEffect(() => {
@@ -755,6 +773,8 @@ function App() {
           'get_remote_tool_status',
           { hostId },
         )
+        // Persist detected tools so SkillCard can show the VM tool matrix
+        setRemoteToolStatuses((prev) => ({ ...prev, [hostId]: toolResult.tools }))
         const installedKeys = toolResult.tools.filter((t) => t.installed).map((t) => t.key)
         if (installedKeys.length === 0) {
           toast.error(t('remote.noToolsDetected'))
@@ -1802,6 +1822,61 @@ function App() {
     [invokeTauri, loadManagedSkills, loading, t, tools],
   )
 
+  const runToggleCustomTargetForSkill = useCallback(
+    async (skill: ManagedSkill, customTargetId: string) => {
+      if (loading) return
+      const ct = customTargets.find((c) => c.id === customTargetId)
+      const ctLabel = ct?.label ?? customTargetId
+      const toolKey = `custom:${customTargetId}`
+      const target = skill.targets.find((t) => t.tool === toolKey)
+      const synced = Boolean(target)
+
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        if (synced) {
+          setActionMessage(
+            t('actions.unsyncing', { name: skill.name, tool: ctLabel }),
+          )
+          await invokeTauri('unsync_skill_from_custom_target', {
+            skillId: skill.id,
+            customTargetId,
+          })
+        } else {
+          setActionMessage(
+            t('actions.syncing', { name: skill.name, tool: ctLabel }),
+          )
+          await invokeTauri('sync_skill_to_custom_target', {
+            sourcePath: skill.central_path,
+            skillId: skill.id,
+            customTargetId,
+            name: skill.name,
+          })
+        }
+        const statusText = synced
+          ? t('status.syncDisabled')
+          : t('status.syncEnabled')
+        setActionMessage(statusText)
+        setSuccessToastMessage(statusText)
+        setActionMessage(null)
+        await loadManagedSkills()
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        if (raw.startsWith('TARGET_EXISTS|')) {
+          const targetPath = raw.split('|')[1] ?? ''
+          setError(t('errors.targetExistsDetail', { path: targetPath }))
+        } else {
+          setError(raw)
+        }
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
+    },
+    [invokeTauri, loadManagedSkills, loading, t, customTargets],
+  )
+
   const handleToggleToolForSkill = useCallback(
     (skill: ManagedSkill, toolId: string) => {
       if (loading) return
@@ -1930,6 +2005,8 @@ function App() {
             remoteToolStatuses={remoteToolStatuses}
             onSyncToRemote={handleSyncSkillToRemote}
             remoteSyncing={remoteSyncing}
+            customTargets={customTargets}
+            onToggleCustomTarget={runToggleCustomTargetForSkill}
             t={t}
           />
         </div>
@@ -2009,6 +2086,10 @@ function App() {
         onClearGitCacheNow={handleClearGitCacheNow}
         onOpenRemoteHosts={handleOpenRemoteHosts}
         onRequestClose={handleCloseSettings}
+        customTargets={customTargets}
+        remoteHosts={remoteHosts}
+        invokeTauri={invokeTauri}
+        onCustomTargetsChanged={loadCustomTargets}
         t={t}
       />
 
@@ -2085,6 +2166,11 @@ function App() {
         onRequestClose={() => setSelectedSkill(null)}
         invokeTauri={invokeTauri}
         t={t}
+        customTargets={customTargets}
+        remoteHosts={remoteHosts}
+        remoteToolStatuses={remoteToolStatuses}
+        remoteSkillStatuses={remoteSkillStatuses}
+        onToggleCustomTarget={runToggleCustomTargetForSkill}
       />
 
       <ClawHubDetailModal

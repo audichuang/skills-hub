@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-02-28
+
+### Added
+
+* **Custom target directories**: CRUD management for custom sync targets (local and remote), with per-skill toggle sync in SkillCard and SkillDetailModal.
+* **SKILL.md content preview**: Read and display SKILL.md contents in SkillDetailModal via new `read_skill_content` backend command.
+* **Remote directory browser**: Browse remote host directories when adding a custom target in Settings.
+* Custom targets section in SkillCard merged into per-host VM sections; standalone local custom targets shown separately.
+* `CLAUDE.md` added for Claude Code integration guidelines.
+* New i18n keys for custom target UI across all three locales (EN / zh-CN / zh-TW).
+
+### Changed
+
+* Sync mode display refined: only non-symlink modes (e.g. `copy`) are explicitly labeled; `symlink` / `remote` / `sftp` modes show no extra badge.
+* SkillDetailModal now shows VM tool matrix and custom target toggles alongside local tools.
+* README updated to reflect Homebrew as the primary installation method; source build instructions simplified.
+
+### Fixed
+
+* `remoteToolStatuses` state now persisted from `sync_selected_skills_to_remote` so SkillCard can render the VM tool matrix.
+
 ## [0.3.0] - 2026-02-27
 
 ### Added
