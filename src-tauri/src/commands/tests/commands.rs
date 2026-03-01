@@ -90,6 +90,7 @@ fn get_managed_skills_impl_maps_targets() {
         last_sync_at: None,
         last_seen_at: 1,
         status: "ok".to_string(),
+        group_name: None,
     };
     store.upsert_skill(&skill).unwrap();
 

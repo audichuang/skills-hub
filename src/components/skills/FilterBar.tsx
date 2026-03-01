@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { ArrowUpDown, Box, Folder, Github, RefreshCw, Search } from 'lucide-react'
+import { ArrowUpDown, Box, Folder, Github, Pencil, RefreshCw, Search, X } from 'lucide-react'
 import type { TFunction } from 'i18next'
 
 export type SourceFilterValue = 'all' | 'local' | 'git' | 'clawhub'
@@ -9,10 +9,12 @@ type FilterBarProps = {
   sourceFilter: SourceFilterValue
   searchQuery: string
   loading: boolean
+  isEditMode: boolean
   onSortChange: (value: 'updated' | 'name') => void
   onSourceFilterChange: (value: SourceFilterValue) => void
   onSearchChange: (value: string) => void
   onRefresh: () => void
+  onToggleEditMode: () => void
   t: TFunction
 }
 
@@ -28,10 +30,12 @@ const FilterBar = ({
   sourceFilter,
   searchQuery,
   loading,
+  isEditMode,
   onSortChange,
   onSourceFilterChange,
   onSearchChange,
   onRefresh,
+  onToggleEditMode,
   t,
 }: FilterBarProps) => {
   return (
@@ -75,6 +79,15 @@ const FilterBar = ({
             placeholder={t('searchPlaceholder')}
           />
         </div>
+        <button
+          className={`btn ${isEditMode ? 'btn-accent' : 'btn-secondary'}`}
+          type="button"
+          onClick={onToggleEditMode}
+          disabled={loading}
+        >
+          {isEditMode ? <X size={14} /> : <Pencil size={14} />}
+          {isEditMode ? t('done') : t('batchEdit')}
+        </button>
         <button
           className="btn btn-secondary"
           type="button"

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-03-02
+
+### Fixed
+
+* **macOS 26 (Tahoe) launch crash**: Patched tao 0.34.5 to replace removed `activateIgnoringOtherApps` API with `activate`, preventing `SIGABRT` on startup.
+* **Group sort order**: Skill groups now always display at the top of the list, before ungrouped skills.
+* **Edit mode border artifact**: Removed stray left border line on skill cards in edit mode.
+
+### Changed
+
+* Upgraded tauri to 2.10.2, wry to 0.54.2, and all tauri plugins to latest versions.
+* Upgraded `@tauri-apps/api` to 2.10.1 and `@tauri-apps/plugin-updater` to 2.10.0.
+
 ## [0.3.2] - 2026-03-01
 
 ### Added

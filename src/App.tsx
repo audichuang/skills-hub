@@ -66,6 +66,8 @@ function App() {
   const [gitUrl, setGitUrl] = useState('')
   const [gitName, setGitName] = useState('')
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
   const [gitCandidates, setGitCandidates] = useState<GitSkillCandidate[]>([])
   const [gitCandidatesRepoUrl, setGitCandidatesRepoUrl] = useState<string>('')
   const [showGitPickModal, setShowGitPickModal] = useState(false)
@@ -968,6 +970,90 @@ function App() {
   const handleDeletePrompt = useCallback((skillId: string) => {
     setPendingDeleteId(skillId)
   }, [])
+
+  const handleToggleEditMode = useCallback(() => {
+    setIsEditMode((prev) => {
+      if (prev) setSelectedSkillIds(new Set())
+      return !prev
+    })
+  }, [])
+
+  const handleToggleSelect = useCallback((skillId: string) => {
+    setSelectedSkillIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(skillId)) {
+        next.delete(skillId)
+      } else {
+        next.add(skillId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleToggleSelectAll = useCallback(() => {
+    setSelectedSkillIds((prev) => {
+      const allSelected = visibleSkills.every((s) => prev.has(s.id))
+      if (allSelected) return new Set()
+      return new Set(visibleSkills.map((s) => s.id))
+    })
+  }, [visibleSkills])
+
+  const handleBatchDeleteSkills = useCallback(
+    async (skillIds: string[]) => {
+      const skills = managedSkills.filter((s) => skillIds.includes(s.id))
+      if (skills.length === 0) return
+      const confirmed = window.confirm(t('batchDeleteConfirm', { count: skills.length }))
+      if (!confirmed) return
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        for (const skill of skills) {
+          setActionMessage(t('actions.removing', { name: skill.name }))
+          await invokeTauri('delete_managed_skill', { skillId: skill.id })
+        }
+        setSuccessToastMessage(t('status.skillRemoved'))
+        setActionMessage(null)
+        await loadManagedSkills()
+        void loadRemoteSkillStatuses(remoteHosts)
+        setIsEditMode(false)
+        setSelectedSkillIds(new Set())
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
+    },
+    [managedSkills, t, loadManagedSkills, remoteHosts, loadRemoteSkillStatuses],
+  )
+
+  const handleBatchUpdateSkills = useCallback(
+    async (skillIds: string[]) => {
+      const skills = managedSkills.filter((s) => skillIds.includes(s.id))
+      if (skills.length === 0) return
+      setLoading(true)
+      setLoadingStartAt(Date.now())
+      setError(null)
+      try {
+        for (const skill of skills) {
+          setActionMessage(t('actions.updating', { name: skill.name }))
+          await invokeTauri('update_managed_skill', { skillId: skill.id })
+        }
+        setActionMessage(null)
+        setSuccessToastMessage(t('status.updated', { name: `${skills.length} skills` }))
+        await loadManagedSkills()
+        setIsEditMode(false)
+        setSelectedSkillIds(new Set())
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setLoading(false)
+        setLoadingStartAt(null)
+      }
+    },
+    [managedSkills, t, loadManagedSkills],
+  )
 
   const handleToggleAllGitCandidates = useCallback((checked: boolean) => {
     setGitCandidateSelected(
@@ -2078,6 +2164,8 @@ function App() {
             onSourceFilterChange={setSourceFilter}
             onSearchChange={handleSearchChange}
             onRefresh={handleRefresh}
+            isEditMode={isEditMode}
+            onToggleEditMode={handleToggleEditMode}
             t={t}
           />
           <SkillsList
@@ -2085,6 +2173,10 @@ function App() {
             visibleSkills={visibleSkills}
             installedTools={visibleTools}
             loading={loading}
+            isEditMode={isEditMode}
+            selectedIds={selectedSkillIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
             updateStatuses={updateStatuses}
             getGithubInfo={getGithubInfo}
             getSkillSourceLabel={getSkillSourceLabel}
@@ -2092,6 +2184,8 @@ function App() {
             onReviewImport={handleReviewImport}
             onUpdateSkill={handleUpdateSkill}
             onDeleteSkill={handleDeletePrompt}
+            onBatchDeleteSkills={handleBatchDeleteSkills}
+            onBatchUpdateSkills={handleBatchUpdateSkills}
             onToggleTool={handleToggleToolForSkill}
             onViewDetail={setSelectedSkill}
             remoteHosts={remoteHosts}

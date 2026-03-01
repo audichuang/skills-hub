@@ -8,7 +8,7 @@ const DB_FILE_NAME: &str = "skills_hub.db";
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.tauri.dev", "com.tauri.dev.skillshub"];
 
 // Schema versioning: bump when making changes and add a migration step.
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 // Minimal schema for MVP: skills, skill_targets, settings, discovered_skills(optional).
 const SCHEMA_V1: &str = r#"
@@ -90,6 +90,10 @@ const SCHEMA_V4: &str = r#"
 ALTER TABLE custom_targets ADD COLUMN remote_host_id TEXT DEFAULT NULL;
 "#;
 
+const SCHEMA_V5: &str = r#"
+ALTER TABLE skills ADD COLUMN group_name TEXT NULL;
+"#;
+
 #[derive(Clone, Debug)]
 pub struct SkillStore {
     db_path: PathBuf,
@@ -109,6 +113,7 @@ pub struct SkillRecord {
     pub last_sync_at: Option<i64>,
     pub last_seen_at: i64,
     pub status: String,
+    pub group_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -166,17 +171,23 @@ impl SkillStore {
                 conn.execute_batch(SCHEMA_V1)?;
                 conn.execute_batch(SCHEMA_V2)?;
                 conn.execute_batch(SCHEMA_V3)?;
+                conn.execute_batch(SCHEMA_V5)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version == 1 {
                 conn.execute_batch(SCHEMA_V2)?;
                 conn.execute_batch(SCHEMA_V3)?;
+                conn.execute_batch(SCHEMA_V5)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version == 2 {
                 conn.execute_batch(SCHEMA_V3)?;
+                conn.execute_batch(SCHEMA_V5)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version == 3 {
-                // Migrate V3 -> V4: add remote_host_id to custom_targets
                 conn.execute_batch(SCHEMA_V4)?;
+                conn.execute_batch(SCHEMA_V5)?;
+                conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            } else if user_version == 4 {
+                conn.execute_batch(SCHEMA_V5)?;
                 conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             } else if user_version > SCHEMA_VERSION {
                 anyhow::bail!(
@@ -185,6 +196,10 @@ impl SkillStore {
                     SCHEMA_VERSION
                 );
             }
+
+            // Backfill group_name for existing git skills that were installed
+            // before the V5 migration added the column.
+            backfill_group_names(conn)?;
 
             Ok(())
         })
@@ -200,7 +215,48 @@ impl SkillStore {
                 .transpose()?)
         })
     }
+}
 
+/// Extract `owner/repo` from a GitHub URL (e.g. `https://github.com/analogjs/angular-skills.git?...`).
+fn derive_group_from_source_ref(source_ref: &str) -> Option<String> {
+    let url = source_ref.split('?').next().unwrap_or(source_ref);
+    let gh = "https://github.com/";
+    if !url.starts_with(gh) {
+        return None;
+    }
+    let rest = &url[gh.len()..];
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let owner = parts[0];
+    let repo = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
+    Some(format!("{}/{}", owner, repo))
+}
+
+/// Backfill `group_name` for git skills that have it NULL.
+fn backfill_group_names(conn: &rusqlite::Connection) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_ref FROM skills \
+         WHERE source_type IN ('git', 'git-cloned') \
+           AND group_name IS NULL AND source_ref IS NOT NULL",
+    )?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for (id, source_ref) in &rows {
+        if let Some(group) = derive_group_from_source_ref(source_ref) {
+            conn.execute(
+                "UPDATE skills SET group_name = ?1 WHERE id = ?2",
+                params![group, id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+impl SkillStore {
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
@@ -225,10 +281,10 @@ impl SkillStore {
             conn.execute(
                 "INSERT INTO skills (
           id, name, source_type, source_ref, source_revision, central_path, content_hash,
-          created_at, updated_at, last_sync_at, last_seen_at, status
+          created_at, updated_at, last_sync_at, last_seen_at, status, group_name
         ) VALUES (
           ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-          ?8, ?9, ?10, ?11, ?12
+          ?8, ?9, ?10, ?11, ?12, ?13
         )
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
@@ -241,7 +297,8 @@ impl SkillStore {
           updated_at = excluded.updated_at,
           last_sync_at = excluded.last_sync_at,
           last_seen_at = excluded.last_seen_at,
-          status = excluded.status",
+          status = excluded.status,
+          group_name = excluded.group_name",
                 params![
                     record.id,
                     record.name,
@@ -254,7 +311,8 @@ impl SkillStore {
                     record.updated_at,
                     record.last_sync_at,
                     record.last_seen_at,
-                    record.status
+                    record.status,
+                    record.group_name
                 ],
             )?;
             Ok(())
@@ -294,7 +352,7 @@ impl SkillStore {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
         "SELECT id, name, source_type, source_ref, source_revision, central_path, content_hash,
-                created_at, updated_at, last_sync_at, last_seen_at, status
+                created_at, updated_at, last_sync_at, last_seen_at, status, group_name
          FROM skills
          ORDER BY updated_at DESC",
       )?;
@@ -312,6 +370,7 @@ impl SkillStore {
                     last_sync_at: row.get(9)?,
                     last_seen_at: row.get(10)?,
                     status: row.get(11)?,
+                    group_name: row.get(12)?,
                 })
             })?;
 
@@ -327,7 +386,7 @@ impl SkillStore {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
         "SELECT id, name, source_type, source_ref, source_revision, central_path, content_hash,
-                created_at, updated_at, last_sync_at, last_seen_at, status
+                created_at, updated_at, last_sync_at, last_seen_at, status, group_name
          FROM skills
          WHERE id = ?1
          LIMIT 1",
@@ -347,6 +406,7 @@ impl SkillStore {
                     last_sync_at: row.get(9)?,
                     last_seen_at: row.get(10)?,
                     status: row.get(11)?,
+                    group_name: row.get(12)?,
                 }))
             } else {
                 Ok(None)
@@ -440,6 +500,16 @@ impl SkillStore {
             conn.execute(
                 "DELETE FROM skill_targets WHERE skill_id = ?1 AND tool = ?2",
                 params![skill_id, tool],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn update_skill_group(&self, skill_id: &str, group_name: Option<&str>) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE skills SET group_name = ?1 WHERE id = ?2",
+                params![group_name, skill_id],
             )?;
             Ok(())
         })

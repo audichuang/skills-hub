@@ -376,36 +376,36 @@ pub fn ensure_skill_on_remote(sess: &Session, info: &RemoteSkillInfo, home: &str
     );
 
     // For git-sourced skills, try git clone on the VM
-    if (info.source_type == "git-cloned" || info.source_type == "git") && info.source_ref.is_some()
-    {
-        let url = info.source_ref.as_ref().unwrap();
-        let (clone_url, subpath) = parse_remote_git_url(url);
-        println!(
-            "[remote_sync]   parsed: clone_url={} subpath={:?}",
-            clone_url, subpath
-        );
-
-        if let Some(sub) = subpath {
-            let repo_key = simple_hash(&clone_url);
-            let repo_cache = format!("{}/.skillshub/.repos/{}", home, repo_key);
+    if let Some(url) = info.source_ref.as_ref() {
+        if info.source_type == "git-cloned" || info.source_type == "git" {
+            let (clone_url, subpath) = parse_remote_git_url(url);
             println!(
-                "[remote_sync]   subpath mode: repo_cache={} sub={}",
-                repo_cache, sub
+                "[remote_sync]   parsed: clone_url={} subpath={:?}",
+                clone_url, subpath
             );
-            clone_or_pull_on_remote(sess, &clone_url, &repo_cache)?;
 
-            let source = format!("{}/{}", repo_cache, sub);
-            ssh_exec(
-                sess,
-                &format!("test -d '{}' || test -f '{}'", source, source),
-            )?;
-            let _ = ssh_exec(sess, &format!("rm -rf '{}'", abs_central));
-            create_remote_symlink(sess, &source, &abs_central)?;
-        } else {
-            println!("[remote_sync]   direct clone mode");
-            clone_or_pull_on_remote(sess, &clone_url, &abs_central)?;
+            if let Some(sub) = subpath {
+                let repo_key = simple_hash(&clone_url);
+                let repo_cache = format!("{}/.skillshub/.repos/{}", home, repo_key);
+                println!(
+                    "[remote_sync]   subpath mode: repo_cache={} sub={}",
+                    repo_cache, sub
+                );
+                clone_or_pull_on_remote(sess, &clone_url, &repo_cache)?;
+
+                let source = format!("{}/{}", repo_cache, sub);
+                ssh_exec(
+                    sess,
+                    &format!("test -d '{}' || test -f '{}'", source, source),
+                )?;
+                let _ = ssh_exec(sess, &format!("rm -rf '{}'", abs_central));
+                create_remote_symlink(sess, &source, &abs_central)?;
+            } else {
+                println!("[remote_sync]   direct clone mode");
+                clone_or_pull_on_remote(sess, &clone_url, &abs_central)?;
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     // Fallback: SFTP upload

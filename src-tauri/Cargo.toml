@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.3.2"
+version = "0.3.3"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -44,3 +44,6 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 [dev-dependencies]
 mockito = "1"
+
+[patch.crates-io]
+tao = { path = "patches/tao-0.34.5" }

@@ -109,6 +109,7 @@ pub fn run() {
             commands::unsync_skill_from_custom_target,
             commands::browse_remote_directory,
             commands::read_skill_content,
+            commands::update_skill_group,
             commands::is_homebrew_installed,
             commands::brew_upgrade_cask
         ])

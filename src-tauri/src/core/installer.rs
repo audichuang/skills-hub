@@ -65,6 +65,7 @@ pub fn install_local_skill<R: tauri::Runtime>(
         last_sync_at: None,
         last_seen_at: now,
         status: "ok".to_string(),
+        group_name: None,
     };
 
     store.upsert_skill(&record)?;
@@ -133,6 +134,7 @@ pub fn install_git_skill<R: tauri::Runtime>(
             last_sync_at: None,
             last_seen_at: now,
             status: "ok".to_string(),
+            group_name: derive_group_name_from_clone_url(&parsed.clone_url),
         };
         store.upsert_skill(&record)?;
 
@@ -185,6 +187,7 @@ pub fn install_git_skill<R: tauri::Runtime>(
         last_sync_at: None,
         last_seen_at: now,
         status: "ok".to_string(),
+        group_name: derive_group_name_from_clone_url(&parsed.clone_url),
     };
 
     store.upsert_skill(&record)?;
@@ -340,6 +343,23 @@ fn derive_name_from_repo_url(repo_url: &str) -> String {
     } else {
         name
     }
+}
+
+/// Derive `owner/repo` from a GitHub clone URL for auto-grouping.
+/// e.g. `https://github.com/analogjs/angular-skills.git` → `Some("analogjs/angular-skills")`
+fn derive_group_name_from_clone_url(clone_url: &str) -> Option<String> {
+    let gh_prefix = "https://github.com/";
+    if !clone_url.starts_with(gh_prefix) {
+        return None;
+    }
+    let rest = &clone_url[gh_prefix.len()..];
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let owner = parts[0];
+    let repo = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
+    Some(format!("{}/{}", owner, repo))
 }
 
 /// Build a `source_ref` URL that encodes the subpath so that `parse_github_url`
@@ -613,6 +633,7 @@ pub fn update_managed_skill_from_source<R: tauri::Runtime>(
         last_sync_at: record.last_sync_at,
         last_seen_at: now,
         status: "ok".to_string(),
+        group_name: record.group_name.clone(),
     };
     store.upsert_skill(&updated)?;
 
@@ -931,6 +952,7 @@ pub fn install_git_skill_from_selection<R: tauri::Runtime>(
         last_sync_at: None,
         last_seen_at: now,
         status: "ok".to_string(),
+        group_name: derive_group_name_from_clone_url(&parsed.clone_url),
     };
     store.upsert_skill(&record)?;
 

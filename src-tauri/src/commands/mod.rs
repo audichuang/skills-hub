@@ -666,6 +666,7 @@ pub struct ManagedSkillDto {
     pub last_sync_at: Option<i64>,
     pub status: String,
     pub targets: Vec<SkillTargetDto>,
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -825,9 +826,27 @@ fn get_managed_skills_impl(store: &SkillStore) -> Result<Vec<ManagedSkillDto>, S
                 last_sync_at: skill.last_sync_at,
                 status: skill.status,
                 targets,
+                group_name: skill.group_name,
             }
         })
         .collect())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn update_skill_group(
+    store: State<'_, SkillStore>,
+    skillId: String,
+    groupName: Option<String>,
+) -> Result<(), String> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .update_skill_group(&skillId, groupName.as_deref())
+            .map_err(format_anyhow_error)
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 // ── Skill content preview ───────────────────────────────────────────

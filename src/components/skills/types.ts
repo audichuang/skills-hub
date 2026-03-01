@@ -41,6 +41,7 @@ export type ManagedSkill = {
     target_path: string
     synced_at?: number | null
   }[]
+  group_name?: string | null
 }
 
 export type GitSkillCandidate = {
