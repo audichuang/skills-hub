@@ -1699,6 +1699,179 @@ span.settings-input {
   transform: translateX(20px);
 }
 
+/* ── Update Notification ─────────────────────────────────────────── */
+
+.update-notification {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  min-width: 280px;
+  max-width: 400px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg);
+  animation: update-slide-in 0.3s ease-out;
+}
+
+@keyframes update-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.update-notification-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.update-notification-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-element-hover);
+}
+
+.update-notification-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.update-notification-icon.downloading {
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  color: var(--accent-primary);
+}
+
+.update-notification-icon.ready {
+  background: color-mix(in srgb, var(--status-success) 15%, transparent);
+  color: var(--status-success);
+}
+
+.update-notification-icon.error {
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  color: var(--status-error);
+}
+
+.update-notification-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.update-notification-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.update-notification-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.update-notification-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.update-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-element);
+  overflow: hidden;
+}
+
+.update-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  transition: width 0.3s ease;
+}
+
+/* ── Settings About Section ──────────────────────────────────────── */
+
+.settings-about-section {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-about-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.settings-about-link:hover {
+  color: var(--accent-primary);
+}
+
+.settings-about-update {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-update-status {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-update-status.up-to-date {
+  color: var(--status-success);
+}
+
+.settings-update-status.has-update {
+  color: var(--accent-primary);
+}
+
+/* Spinny animation for check icon */
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: icon-spin 1s linear infinite;
+}
+
 .settings-version {
   margin-top: 4px;
   padding-top: 16px;

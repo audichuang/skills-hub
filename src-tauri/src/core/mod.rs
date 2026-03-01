@@ -11,3 +11,4 @@ pub mod skill_store;
 pub mod sync_engine;
 pub mod temp_cleanup;
 pub mod tool_adapters;
+pub mod update_checker;

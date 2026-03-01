@@ -11,6 +11,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -107,7 +108,9 @@ pub fn run() {
             commands::sync_skill_to_custom_target,
             commands::unsync_skill_from_custom_target,
             commands::browse_remote_directory,
-            commands::read_skill_content
+            commands::read_skill_content,
+            commands::is_homebrew_installed,
+            commands::brew_upgrade_cask
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

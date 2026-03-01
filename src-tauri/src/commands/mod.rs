@@ -705,8 +705,37 @@ pub async fn delete_managed_skill(
         }
 
         let record = store.get_skill_by_id(&skillId)?;
-        if let Some(skill) = record {
-            let path = std::path::PathBuf::from(skill.central_path);
+        if let Some(ref skill) = record {
+            // ── 清理所有 remote hosts 上的技能 ──
+            if let Ok(hosts) = store.list_remote_hosts() {
+                println!(
+                    "[delete_managed_skill] found {} remote hosts to clean",
+                    hosts.len()
+                );
+                for host in hosts {
+                    match remote_sync::create_ssh_session(
+                        &host.host,
+                        host.port as u16,
+                        &host.username,
+                        &host.auth_method,
+                        host.key_path.as_deref(),
+                    ) {
+                        Ok(sess) => {
+                            if let Err(err) =
+                                remote_sync::remove_skill_from_remote(&sess, &skill.name)
+                            {
+                                remove_failures.push(format!("remote({}): {}", host.label, err));
+                            }
+                        }
+                        Err(err) => {
+                            remove_failures
+                                .push(format!("remote({}) SSH 连接失败: {}", host.label, err));
+                        }
+                    }
+                }
+            }
+
+            let path = std::path::PathBuf::from(&skill.central_path);
             if path.exists() {
                 std::fs::remove_dir_all(&path)?;
             }
@@ -715,7 +744,7 @@ pub async fn delete_managed_skill(
 
         if !remove_failures.is_empty() {
             anyhow::bail!(
-                "已删除托管记录，但清理部分工具目录失败：\n- {}",
+                "已删除托管记录，但清理部分目录失败：\n- {}",
                 remove_failures.join("\n- ")
             );
         }
@@ -1155,12 +1184,17 @@ pub async fn sync_all_skills_to_remote(
         })?;
 
         let skills = store.list_skills().map_err(format_anyhow_error)?;
-        let skill_pairs: Vec<(String, std::path::PathBuf)> = skills
+        let skill_infos: Vec<remote_sync::RemoteSkillInfo> = skills
             .into_iter()
-            .map(|s| (s.name, std::path::PathBuf::from(s.central_path)))
+            .map(|s| remote_sync::RemoteSkillInfo {
+                name: s.name,
+                local_path: std::path::PathBuf::from(s.central_path),
+                source_type: s.source_type,
+                source_ref: s.source_ref,
+            })
             .collect();
 
-        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_pairs, &toolKeys)
+        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_infos, &toolKeys)
             .map_err(|e| {
                 store
                     .update_remote_host_sync_status(&hostId, "error", None)
@@ -1209,8 +1243,13 @@ pub async fn sync_remote_skill_to_tool(
         )
         .map_err(format_anyhow_error)?;
 
-        let local_path = std::path::PathBuf::from(&skill.central_path);
-        remote_sync::sync_skill_to_remote_tool(&sess, &skill.name, &local_path, &toolKey)
+        let info = remote_sync::RemoteSkillInfo {
+            name: skill.name.clone(),
+            local_path: std::path::PathBuf::from(&skill.central_path),
+            source_type: skill.source_type.clone(),
+            source_ref: skill.source_ref.clone(),
+        };
+        remote_sync::sync_skill_to_remote_tool(&sess, &info, &toolKey)
             .map_err(format_anyhow_error)?;
 
         Ok(())
@@ -1368,13 +1407,18 @@ pub async fn sync_selected_skills_to_remote(
         let all_skills = store.list_skills().map_err(format_anyhow_error)?;
         let skill_ids_set: std::collections::HashSet<&str> =
             skillIds.iter().map(|s| s.as_str()).collect();
-        let skill_pairs: Vec<(String, std::path::PathBuf)> = all_skills
+        let skill_infos: Vec<remote_sync::RemoteSkillInfo> = all_skills
             .into_iter()
             .filter(|s| skill_ids_set.contains(s.id.as_str()))
-            .map(|s| (s.name, std::path::PathBuf::from(s.central_path)))
+            .map(|s| remote_sync::RemoteSkillInfo {
+                name: s.name,
+                local_path: std::path::PathBuf::from(s.central_path),
+                source_type: s.source_type,
+                source_ref: s.source_ref,
+            })
             .collect();
 
-        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_pairs, &toolKeys)
+        let synced = remote_sync::sync_all_skills_to_remote(&sess, &skill_infos, &toolKeys)
             .map_err(|e| {
                 store
                     .update_remote_host_sync_status(&hostId, "error", None)
@@ -1542,16 +1586,24 @@ pub async fn sync_skill_to_custom_target(
                 host.key_path.as_deref(),
             )?;
 
-            let local_path = std::path::Path::new(&sourcePath);
+            let skill = store
+                .get_skill_by_id(&skillId)?
+                .ok_or_else(|| anyhow::anyhow!("skill not found"))?;
+
+            let info = remote_sync::RemoteSkillInfo {
+                name: name.clone(),
+                local_path: std::path::PathBuf::from(&sourcePath),
+                source_type: skill.source_type.clone(),
+                source_ref: skill.source_ref.clone(),
+            };
 
             // 1. Ensure skill exists in VM central (~/.skillshub/<name>/)
             let home = crate::core::remote_sync::ssh_exec(&sess, "echo $HOME")?;
             let home = home.trim();
-            let abs_central = format!("{}/.skillshub/{}", home, name);
-            crate::core::remote_sync::ssh_exec(&sess, &format!("mkdir -p '{}'", abs_central))?;
-            crate::core::remote_sync::sftp_upload_dir(&sess, local_path, &abs_central)?;
+            crate::core::remote_sync::ensure_skill_on_remote(&sess, &info, home)?;
 
             // 2. Symlink from central to custom target path
+            let abs_central = format!("{}/.skillshub/{}", home, name);
             let remote_dest = format!("{}/{}", ct.path.trim_end_matches('/'), name);
             crate::core::remote_sync::create_remote_symlink(&sess, &abs_central, &remote_dest)?;
 
@@ -1747,6 +1799,18 @@ pub async fn browse_remote_directory(
     .await
     .map_err(|err| err.to_string())?
     .map_err(format_anyhow_error)
+}
+
+#[tauri::command]
+pub fn is_homebrew_installed() -> bool {
+    crate::core::update_checker::is_homebrew_installed()
+}
+
+#[tauri::command]
+pub async fn brew_upgrade_cask() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(crate::core::update_checker::brew_upgrade_cask)
+        .await
+        .map_err(|err| err.to_string())?
 }
 
 #[cfg(test)]

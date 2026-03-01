@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 * **`git-cloned` source type**: Single-skill repos installed via direct clone now use `git pull` in-place instead of staging-dir swap, preserving Git history.
+* **VM sync uses `git clone`**: Git-sourced skills now use `git clone`/`git pull` on the VM instead of SFTP upload, preserving full Git history and enabling `git pull` updates directly on the VM.
 * SkillCard remote tool pills changed from static `<span>` to interactive `<button>` with sync/unsync toggle and visual state (active/inactive).
 * Remote host sections in SkillCard now display based on detected tools (`hostsWithTools`) instead of synced skills (`syncedHosts`).
 * Source filter now groups `git` and `git-cloned` types together under the "Git" filter.
@@ -24,6 +25,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+* **Skill deletion now cleans up VM resources**: `delete_managed_skill` iterates all configured remote hosts and removes tool symlinks + central copy (`~/.skillshub/<name>`) via SSH.
+* **Remote skill status refreshed after delete**: UI now calls `loadRemoteSkillStatuses` after deletion so VM badges update immediately.
 * Redundant `setActionMessage(statusText)` removed from `runToggleToolForSkill` — toast message was flashing and immediately clearing.
 
 ## [0.3.1] - 2026-02-28

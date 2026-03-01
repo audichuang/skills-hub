@@ -7,6 +7,7 @@ import type { SourceFilterValue } from './components/skills/FilterBar'
 import Header from './components/skills/Header'
 import LoadingOverlay from './components/skills/LoadingOverlay'
 import SkillsList from './components/skills/SkillsList'
+import UpdateNotification from './components/skills/UpdateNotification'
 import AddSkillModal from './components/skills/modals/AddSkillModal'
 import ClawHubDetailModal from './components/skills/modals/ClawHubDetailModal'
 import DeleteModal from './components/skills/modals/DeleteModal'
@@ -104,6 +105,7 @@ function App() {
   const [remoteToolStatuses, setRemoteToolStatuses] = useState<Record<string, RemoteToolInfoDto[]>>({})
   const [remoteSyncing, setRemoteSyncing] = useState<string | null>(null)
   const [customTargets, setCustomTargets] = useState<CustomTarget[]>([])
+  const [showUpdateNotification, setShowUpdateNotification] = useState(false)
   const [hiddenTools, setHiddenTools] = useState<string[]>(() => {
     try {
       const stored = window.localStorage.getItem('skills-hub-hidden-tools')
@@ -381,6 +383,15 @@ function App() {
       void loadPlan()
     }
   }, [isTauri, loadPlan])
+
+  // Auto-check for app updates 3 seconds after startup
+  useEffect(() => {
+    if (!isTauri) return
+    const timer = setTimeout(() => {
+      setShowUpdateNotification(true)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [isTauri])
 
   useEffect(() => {
     if (!successToastMessage) return
@@ -1753,6 +1764,8 @@ function App() {
       setSuccessToastMessage(t('status.skillRemoved'))
       setActionMessage(null)
       await loadManagedSkills()
+      // Refresh remote skill statuses so UI stops showing deleted symlinks
+      void loadRemoteSkillStatuses(remoteHosts)
       setPendingDeleteId(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -2033,6 +2046,11 @@ function App() {
         richColors
         toastOptions={{ duration: 1800 }}
       />
+      {isTauri && showUpdateNotification && (
+        <UpdateNotification
+          onDismiss={() => setShowUpdateNotification(false)}
+        />
+      )}
       <LoadingOverlay
         loading={loading}
         actionMessage={actionMessage}

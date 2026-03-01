@@ -1,11 +1,23 @@
 use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use ssh2::Session;
 
 use super::tool_adapters::default_tool_adapters;
+
+// ── Data types ──────────────────────────────────────────────────────────
+
+/// Information about a skill to be synced to a remote host.
+/// Carries git source info so we can use `git clone` on the VM when possible.
+pub struct RemoteSkillInfo {
+    pub name: String,
+    pub local_path: PathBuf,
+    pub source_type: String,
+    /// For git-cloned: the clone URL (e.g. "https://github.com/owner/repo")
+    pub source_ref: Option<String>,
+}
 
 // ── SSH session helpers ─────────────────────────────────────────────────
 
@@ -290,13 +302,186 @@ pub fn unsync_skill_from_remote_tool(
     Ok(())
 }
 
+/// Remove a skill completely from a remote host.
+/// 1. Remove symlinks from ALL installed tools
+/// 2. Remove the central copy (~/.skillshub/<name>)
+pub fn remove_skill_from_remote(sess: &Session, skill_name: &str) -> Result<()> {
+    println!(
+        "[remote_sync] remove_skill_from_remote: skill={}",
+        skill_name
+    );
+    let home = ssh_exec(sess, "echo $HOME")?;
+    let home = home.trim();
+
+    // Remove symlinks from all tools (best-effort)
+    let adapters = default_tool_adapters();
+    for adapter in &adapters {
+        let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, skill_name);
+        println!("[remote_sync]   removing tool symlink: {}", abs_tool);
+        let _ = ssh_exec(sess, &format!("rm -rf '{}'", abs_tool));
+    }
+
+    // Remove central copy
+    let abs_central = format!("{}/.skillshub/{}", home, skill_name);
+    println!("[remote_sync]   removing central: {}", abs_central);
+    ssh_exec(sess, &format!("rm -rf '{}'", abs_central))?;
+
+    Ok(())
+}
+
+// ── Git clone on remote ─────────────────────────────────────────────────
+
+/// Clone or pull a git repo on the remote host via SSH.
+/// Returns Ok(()) on success.
+fn clone_or_pull_on_remote(sess: &Session, clone_url: &str, remote_path: &str) -> Result<()> {
+    println!(
+        "[remote_sync] clone_or_pull_on_remote: url={} path={}",
+        clone_url, remote_path
+    );
+    let check = format!(
+        "if [ -d '{path}/.git' ]; then echo EXISTS; else echo MISSING; fi",
+        path = remote_path
+    );
+    let status = ssh_exec(sess, &check)?;
+
+    if status.trim() == "EXISTS" {
+        println!("[remote_sync]   git repo exists, pulling...");
+        ssh_exec(
+            sess,
+            &format!(
+                "cd '{}' && git fetch origin && git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)",
+                remote_path
+            ),
+        )?;
+    } else {
+        println!("[remote_sync]   cloning fresh...");
+        ssh_exec(sess, &format!("rm -rf '{}'", remote_path))?;
+        ssh_exec(
+            sess,
+            &format!("git clone '{}' '{}'", clone_url, remote_path),
+        )?;
+    }
+
+    println!("[remote_sync]   clone_or_pull done");
+    Ok(())
+}
+
+/// Ensure a skill exists in the remote central repo (~/.skillshub/<name>).
+/// Uses `git clone` for git-sourced skills, SFTP upload for others.
+pub fn ensure_skill_on_remote(sess: &Session, info: &RemoteSkillInfo, home: &str) -> Result<()> {
+    let abs_central = format!("{}/.skillshub/{}", home, info.name);
+    println!(
+        "[remote_sync] ensure_skill_on_remote: name={} source_type={} source_ref={:?}",
+        info.name, info.source_type, info.source_ref
+    );
+
+    // For git-sourced skills, try git clone on the VM
+    if (info.source_type == "git-cloned" || info.source_type == "git") && info.source_ref.is_some()
+    {
+        let url = info.source_ref.as_ref().unwrap();
+        let (clone_url, subpath) = parse_remote_git_url(url);
+        println!(
+            "[remote_sync]   parsed: clone_url={} subpath={:?}",
+            clone_url, subpath
+        );
+
+        if let Some(sub) = subpath {
+            let repo_key = simple_hash(&clone_url);
+            let repo_cache = format!("{}/.skillshub/.repos/{}", home, repo_key);
+            println!(
+                "[remote_sync]   subpath mode: repo_cache={} sub={}",
+                repo_cache, sub
+            );
+            clone_or_pull_on_remote(sess, &clone_url, &repo_cache)?;
+
+            let source = format!("{}/{}", repo_cache, sub);
+            ssh_exec(
+                sess,
+                &format!("test -d '{}' || test -f '{}'", source, source),
+            )?;
+            let _ = ssh_exec(sess, &format!("rm -rf '{}'", abs_central));
+            create_remote_symlink(sess, &source, &abs_central)?;
+        } else {
+            println!("[remote_sync]   direct clone mode");
+            clone_or_pull_on_remote(sess, &clone_url, &abs_central)?;
+        }
+        return Ok(());
+    }
+
+    // Fallback: SFTP upload
+    println!("[remote_sync]   SFTP upload fallback");
+    if !info.local_path.exists() {
+        anyhow::bail!(
+            "local source directory does not exist: {}",
+            info.local_path.display()
+        );
+    }
+    ssh_exec(sess, &format!("mkdir -p '{}'", abs_central))?;
+    sftp_upload_dir(sess, &info.local_path, &abs_central)?;
+    Ok(())
+}
+
+/// Parse a source_ref URL into (clone_url, optional subpath).
+/// Handles GitHub tree URLs like "https://github.com/owner/repo/tree/branch/path".
+fn parse_remote_git_url(url: &str) -> (String, Option<String>) {
+    let trimmed = url.trim().trim_end_matches('/');
+    let gh_prefix = "https://github.com/";
+
+    if !trimmed.starts_with(gh_prefix) {
+        return (normalize_clone_url(trimmed), None);
+    }
+
+    let rest = &trimmed[gh_prefix.len()..];
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts.len() < 2 {
+        return (normalize_clone_url(trimmed), None);
+    }
+
+    let owner = parts[0];
+    let repo = parts[1].trim_end_matches(".git");
+    let clone_url = format!("https://github.com/{}/{}.git", owner, repo);
+
+    // Check for /tree/<branch>/<subpath> or /blob/<branch>/<subpath>
+    if parts.len() >= 5 && (parts[2] == "tree" || parts[2] == "blob") {
+        // parts[3] = branch, parts[4..] = subpath
+        let subpath = parts[4..].join("/");
+        if !subpath.is_empty() {
+            return (clone_url, Some(subpath));
+        }
+    }
+
+    (clone_url, None)
+}
+
+/// Simple hash for repo cache key on remote.
+fn simple_hash(s: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Normalize a source_ref URL to a proper clone URL.
+/// e.g. "https://github.com/owner/repo" → "https://github.com/owner/repo.git"
+fn normalize_clone_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    if trimmed.ends_with(".git") {
+        return trimmed.to_string();
+    }
+    // For GitHub URLs, add .git suffix
+    if trimmed.starts_with("https://github.com/") {
+        return format!("{}.git", trimmed);
+    }
+    trimmed.to_string()
+}
+
 /// Sync a single skill to a specific tool on the remote host.
-/// 1. Upload skill to remote central repo (~/.skillshub/<name>)
+/// 1. Ensure skill exists in central repo (~/.skillshub/<name>) via git clone or SFTP
 /// 2. Symlink from central repo to tool skills dir
 pub fn sync_skill_to_remote_tool(
     sess: &Session,
-    skill_name: &str,
-    local_skill_path: &Path,
+    info: &RemoteSkillInfo,
     tool_key: &str,
 ) -> Result<()> {
     let adapter = default_tool_adapters()
@@ -304,85 +489,74 @@ pub fn sync_skill_to_remote_tool(
         .find(|a| a.id.as_key() == tool_key)
         .ok_or_else(|| anyhow::anyhow!("unknown tool key: {}", tool_key))?;
 
-    // Resolve $HOME first — SFTP does NOT expand ~
     let home = ssh_exec(sess, "echo $HOME")?;
     let home = home.trim();
-    let abs_central = format!("{}/.skillshub/{}", home, skill_name);
 
-    // Ensure central dir exists (via shell, which handles mkdir -p)
-    ssh_exec(sess, &format!("mkdir -p '{}'", abs_central))?;
+    // Ensure skill exists in central repo
+    ensure_skill_on_remote(sess, info, home)?;
 
-    // Upload skill directory using absolute path
-    sftp_upload_dir(sess, local_skill_path, &abs_central)?;
-
-    // Create symlink
-    let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, skill_name);
+    // Create symlink from central to tool dir
+    let abs_central = format!("{}/.skillshub/{}", home, info.name);
+    let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, info.name);
     create_remote_symlink(sess, &abs_central, &abs_tool)?;
 
     Ok(())
 }
 
 /// Sync all managed skills to a remote host.
-/// Uploads each skill to ~/.skillshub/<name> and creates symlinks for detected tools.
-/// Skips skills whose local source directory is missing.
+/// Uses git clone for git-sourced skills, SFTP for others.
+/// Creates symlinks for detected tools.
 /// Collects per-skill errors instead of aborting the entire batch.
 pub fn sync_all_skills_to_remote(
     sess: &Session,
-    skills: &[(String, std::path::PathBuf)], // (name, local_central_path)
-    tool_keys: &[String],                    // tools to sync to
+    skills: &[RemoteSkillInfo],
+    tool_keys: &[String],
 ) -> Result<Vec<String>> {
     let mut synced = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
-    // Resolve $HOME first — SFTP does NOT expand ~
     let home = ssh_exec(sess, "echo $HOME")?;
     let home = home.trim().to_string();
 
     // Ensure remote central repo directory exists
     ssh_exec(sess, &format!("mkdir -p '{}/.skillshub'", home))?;
 
-    // Build adapters once outside the loop.
     let adapters = default_tool_adapters();
 
-    for (name, local_path) in skills {
-        // Skip skills whose local source is missing
-        if !local_path.exists() {
+    for info in skills {
+        // Skip skills whose local source is missing (only relevant for SFTP path)
+        if info.source_type != "git-cloned" && !info.local_path.exists() {
             eprintln!(
                 "[remote_sync] skipping '{}': local path does not exist: {}",
-                name,
-                local_path.display()
+                info.name,
+                info.local_path.display()
             );
             continue;
         }
 
-        let abs_central = format!("{}/.skillshub/{}", home, name);
-
-        // Upload skill directory using absolute path
-        if let Err(e) = sftp_upload_dir(sess, local_path, &abs_central) {
-            errors.push(format!("{}: {:#}", name, e));
+        // Ensure skill is on remote (git clone or SFTP)
+        if let Err(e) = ensure_skill_on_remote(sess, info, &home) {
+            errors.push(format!("{}: {:#}", info.name, e));
             continue;
         }
 
         // Create symlinks for each tool
+        let abs_central = format!("{}/.skillshub/{}", home, info.name);
         for tool_key in tool_keys {
             if let Some(adapter) = adapters.iter().find(|a| a.id.as_key() == tool_key) {
-                let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, name);
-
-                // Ensure tool skills dir exists and create symlink
+                let abs_tool = format!("{}/{}/{}", home, adapter.relative_skills_dir, info.name);
                 if let Err(e) = create_remote_symlink(sess, &abs_central, &abs_tool) {
-                    errors.push(format!("{} -> {}: {:#}", name, tool_key, e));
+                    errors.push(format!("{} -> {}: {:#}", info.name, tool_key, e));
                 }
             }
         }
 
-        synced.push(name.clone());
+        synced.push(info.name.clone());
     }
 
     if !errors.is_empty() && synced.is_empty() {
-        // All skills failed – propagate as error
         anyhow::bail!("all skills failed to sync:\n{}", errors.join("\n"));
     } else if !errors.is_empty() {
-        // Partial success – log warnings but return synced list
         for e in &errors {
             log::warn!("[remote_sync] partial failure: {}", e);
         }

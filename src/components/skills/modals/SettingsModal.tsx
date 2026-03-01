@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronRight, FolderOpen, FolderPlus, Globe, Monitor, Trash2 } from 'lucide-react'
+import { ChevronRight, ExternalLink, FolderOpen, FolderPlus, Github, Globe, Monitor, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TFunction } from 'i18next'
 import type { CustomTarget, RemoteHost, ToolOption } from '../types'
@@ -574,6 +574,24 @@ const SettingsModal = ({
             </div>
           )}
 
+          {/* ── About Section ────────────────────────────── */}
+          <div className="settings-about-section">
+            <div className="settings-about-row">
+              <a
+                className="settings-about-link"
+                href="https://github.com/audichuang/skills-hub"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Github size={16} />
+                <span>{t('viewOnGitHub')}</span>
+                <ExternalLink size={12} />
+              </a>
+
+              <AboutUpdateChecker isTauri={isTauri} t={t} invokeTauri={invokeTauri} />
+            </div>
+          </div>
+
           <div className="settings-version">
             {t('appName')} {versionText}
           </div>
@@ -585,6 +603,97 @@ const SettingsModal = ({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Sub-component: manual update checker + brew upgrade
+function AboutUpdateChecker({
+  isTauri,
+  t,
+  invokeTauri,
+}: {
+  isTauri: boolean
+  t: TFunction
+  invokeTauri: <T, >(command: string, args?: Record<string, unknown>) => Promise<T>
+}) {
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<{ hasUpdate: boolean; version?: string; downloadUrl?: string } | null>(null)
+  const [isBrewInstalled, setIsBrewInstalled] = useState(false)
+  const [brewUpgrading, setBrewUpgrading] = useState(false)
+
+  useEffect(() => {
+    if (!isTauri) return
+    invokeTauri<boolean>('is_homebrew_installed')
+      .then(setIsBrewInstalled)
+      .catch(() => setIsBrewInstalled(false))
+  }, [isTauri, invokeTauri])
+
+  const handleCheck = async () => {
+    setChecking(true)
+    setResult(null)
+    try {
+      const { check } = await import('@tauri-apps/plugin-updater')
+      const update = await check()
+      if (update) {
+        setResult({ hasUpdate: true, version: update.version })
+      } else {
+        setResult({ hasUpdate: false })
+      }
+    } catch {
+      setResult({ hasUpdate: false })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const handleBrewUpgrade = async () => {
+    setBrewUpgrading(true)
+    try {
+      await invokeTauri<string>('brew_upgrade_cask')
+      toast.success(t('brewSuccess'))
+      try {
+        const { relaunch } = await import('@tauri-apps/plugin-process')
+        await relaunch()
+      } catch { /* ignore */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(msg)
+    } finally {
+      setBrewUpgrading(false)
+    }
+  }
+
+  if (!isTauri) return null
+
+  return (
+    <div className="settings-about-update">
+      <button
+        className="btn btn-secondary btn-sm"
+        onClick={() => void handleCheck()}
+        disabled={checking}
+      >
+        <RefreshCw size={14} className={checking ? 'spin' : ''} />
+        {checking ? t('checkingUpdates') : t('checkForUpdates')}
+      </button>
+
+      {result && !checking && (
+        <span className={`settings-update-status ${result.hasUpdate ? 'has-update' : 'up-to-date'}`}>
+          {result.hasUpdate
+            ? t('newVersionAvailable', { version: result.version })
+            : `✓ ${t('latestVersion')}`}
+        </span>
+      )}
+
+      {result?.hasUpdate && isBrewInstalled && (
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => void handleBrewUpgrade()}
+          disabled={brewUpgrading}
+        >
+          {brewUpgrading ? t('brewUpgrading') : t('brewUpgrade')}
+        </button>
+      )}
     </div>
   )
 }
